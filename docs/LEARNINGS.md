@@ -53,6 +53,15 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] AUTH/CORE — `issuer-uri`는 기동을 막고, BlockHound는 파일 I/O를 잡는다
+- **상황:** Keycloak 리소스 서버 설정과 블로킹 격리(S13)를 처음 구현.
+- **발견 1:** `spring.security.oauth2.resourceserver.jwt.issuer-uri`를 쓰면 **빈 생성 시점에 Keycloak으로 네트워크 호출**이 나간다. Keycloak이 떠 있지 않으면 애플리케이션 컨텍스트가 아예 뜨지 않아 모든 `@SpringBootTest`가 죽는다. `jwk-set-uri`는 첫 검증 때 지연 조회하므로 컨텍스트가 뜬다.
+- **발견 2:** JPA·Flyway가 클래스패스에 들어오면 **모든** `@SpringBootTest`가 기동 시 DB에 연결한다. 웹 테스트도 예외가 아니다. Testcontainers PostgreSQL을 `ApplicationContextInitializer`로 붙여 해결했다(`spring-boot-testcontainers`의 `@ServiceConnection`은 사전 승인 목록 밖이라 쓰지 않았다).
+- **발견 3:** BlockHound는 JDK 21에서 **`FileInputStream` 읽기를 실제로 잡는다**(직접 실험으로 확인). `Thread.sleep` 계열은 못 잡는다. 그래서 "BlockHound가 무장되어 있는지"를 파일 읽기로 단언하는 테스트를 따로 뒀다. JVM 인자 `-XX:+AllowRedefinitionToAddDeleteMethods`가 없으면 아예 동작하지 않는다.
+- **결정/해결:** `Blocking.call/run`이 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다. 실행 스레드 이름이 `boundedElastic-`으로 시작하는지 단언하는 테스트를 BlockHound와 **함께** 둔다.
+- **영향:** S13, S25, PERF-1, E12, REL-5
+- **다음 주의:** `publishOn`은 하위 연산자만 옮겨 블로킹 소스가 이벤트 루프에 남는다. 반드시 `subscribeOn`. 그리고 안전장치는 위반을 주입해 검증한다 — "통과했다"가 "위반이 없다"를 뜻하려면 "위반하면 실패한다"가 먼저 참이어야 한다.
+
 ## [2026-07-10] IDX — 바이너리 픽스처는 코드로 만든다 (PDF·hwp)
 - **상황:** "PDF 업로드", "hwp 업로드" 시나리오를 검증하려면 실제 바이너리가 필요했다.
 - **발견:** 저장소에 바이너리를 커밋하거나 PDF 생성 라이브러리를 의존성에 추가하지 않고도 된다. PDF는 규격대로 객체·xref·trailer를 조립하면 Tika(PDFBox)가 읽는다(`MinimalPdf`). hwp는 `BlankFileMaker.make()` → `paragraph.getText().addString(...)` → `HWPWriter.toStream(...)`으로 만든다(`MinimalHwp`). 읽기는 `HWPReader.fromInputStream` + `TextExtractor.extract(hwp, TextExtractMethod.OnlyMainParagraph)`.
