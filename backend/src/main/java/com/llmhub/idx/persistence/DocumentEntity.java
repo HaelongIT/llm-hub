@@ -86,12 +86,15 @@ public class DocumentEntity {
 			String originalPath,
 			String[] accessTags,
 			String embeddingModel,
+			String chunkingVersion,
 			UUID uploadedBy,
 			Instant now) {
 		this.filename = filename;
 		this.originalPath = originalPath;
 		this.accessTags = accessTags.clone();
 		this.embeddingModel = embeddingModel;
+		// 갱신하지 않으면 재색인해도 옛 버전이 남아 대상 목록에서 사라지지 않는다 (E11).
+		this.chunkingVersion = chunkingVersion;
 		if (uploadedBy != null) {
 			this.uploadedBy = uploadedBy;
 		}
@@ -120,6 +123,10 @@ public class DocumentEntity {
 
 	public String getEmbeddingModel() {
 		return embeddingModel;
+	}
+
+	public String getChunkingVersion() {
+		return chunkingVersion;
 	}
 
 	public UUID getUploadedBy() {

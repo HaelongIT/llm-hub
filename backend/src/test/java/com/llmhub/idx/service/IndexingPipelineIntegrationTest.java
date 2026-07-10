@@ -172,6 +172,7 @@ class IndexingPipelineIntegrationTest {
 				String storageKey,
 				List<String> accessTags,
 				String embeddingModel,
+				String chunkingVersion,
 				java.util.UUID uploadedBy) {
 			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (idByDocKey.size() + 1));
 			DocumentRecord record = new DocumentRecord(id, docKey, filename, storageKey, accessTags, embeddingModel);

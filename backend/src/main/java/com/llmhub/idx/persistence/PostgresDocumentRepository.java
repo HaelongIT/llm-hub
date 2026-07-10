@@ -19,8 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class PostgresDocumentRepository implements DocumentRepository {
 
-	/** 청킹 전략이 바뀌면 재색인 대상을 이 값으로 식별한다 (E11). */
-	private static final String CHUNKING_VERSION = "token-v0";
+	// 청킹 버전은 상수가 아니다. ChunkingStrategy가 자기 버전을 알려주고 IndexingService가 넘긴다 (E11).
 
 	private final DocumentJpaRepository jpaRepository;
 	private final Clock clock;
@@ -38,6 +37,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 			String storageKey,
 			List<String> accessTags,
 			String embeddingModel,
+			String chunkingVersion,
 			UUID uploadedBy) {
 		Instant now = Instant.now(clock);
 		String[] tags = accessTags.toArray(String[]::new);
@@ -48,7 +48,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 						.map(
 								existing -> {
 									// 같은 doc_key는 같은 document다. id가 바뀌면 조각들이 고아가 된다 (S17).
-									existing.replaceWith(filename, storageKey, tags, embeddingModel, uploadedBy, now);
+									existing.replaceWith(filename, storageKey, tags, embeddingModel, chunkingVersion, uploadedBy, now);
 									return existing;
 								})
 						.orElseGet(
@@ -60,7 +60,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 												storageKey,
 												tags,
 												embeddingModel,
-												CHUNKING_VERSION,
+												chunkingVersion,
 												uploadedBy,
 												now));
 

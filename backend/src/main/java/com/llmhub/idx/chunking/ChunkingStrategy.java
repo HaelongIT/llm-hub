@@ -17,4 +17,12 @@ public interface ChunkingStrategy {
 	 * @return 순서가 보존된 조각들. 빈 텍스트면 빈 목록.
 	 */
 	List<Chunk> chunk(String text);
+
+	/**
+	 * 이 전략의 식별자. {@code document.chunking_version}에 기록된다 (docs/03).
+	 *
+	 * <p>전략을 바꾸면 이 값도 바꾼다. 그래야 어떤 문서가 옛 전략으로 색인되었는지 알 수 있다 (E11). 임베딩의 {@code
+	 * EmbeddingSpec.model()}과 같은 역할이다.
+	 */
+	String version();
 }

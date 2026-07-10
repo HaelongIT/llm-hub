@@ -235,6 +235,23 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("기록되는 청킹 버전은 상수가 아니라 ChunkingStrategy가 알려준 값이다")
+	void 청킹_버전은_전략에서_온다(@TempDir Path root) {
+		// 임베딩 모델이 EmbeddingClient.spec().model()에서 오듯, 청킹 버전도 전략에서 온다 (E11).
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		service.index(요청("규정", "규정.txt", List.of("public")));
+		assertThat(documents.마지막_청킹버전).isEqualTo("token-v0");
+
+		// 전략을 갈아끼우면 기록되는 버전도 따라 바뀐다.
+		service = 전략을_바꾼다(root, new 대역_청킹("sentence-v1"));
+		service.index(요청("규정2", "규정2.txt", List.of("public")));
+
+		assertThat(documents.마지막_청킹버전)
+				.as("상수라면 전략을 바꿔도 값이 그대로다. 그러면 재색인 대상을 식별할 수 없다")
+				.isEqualTo("sentence-v1");
+	}
+
+	@Test
 	@DisplayName("재색인은 업로더를 다시 지정하지 않는다")
 	void 재색인은_업로더를_건드리지_않는다(@TempDir Path root) {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
@@ -270,7 +287,13 @@ class IndexingServiceTest {
 		// 문서의 접근 태그가 바뀌었다. document가 태그의 유일한 원천이다 (S18).
 		DocumentRecord 문서 = documents.byId.get(결과.documentId());
 		documents.upsert(
-				"규정", 문서.filename(), 문서.storageKey(), List.of("public", "restricted"), 문서.embeddingModel(), null);
+				"규정",
+				문서.filename(),
+				문서.storageKey(),
+				List.of("public", "restricted"),
+				문서.embeddingModel(),
+				"token-v0",
+				null);
 
 		service.reindex("규정");
 
@@ -363,6 +386,31 @@ class IndexingServiceTest {
 					assertThat(d.docKey()).isEqualTo("옛문서");
 					assertThat(d.embeddingModel()).isEqualTo("옛-모델");
 				});
+	}
+
+	/** 버전만 다른 청킹 전략. 실제 청킹은 위임한다. */
+	private record 대역_청킹(String 버전) implements com.llmhub.idx.chunking.ChunkingStrategy {
+		@Override
+		public String version() {
+			return 버전;
+		}
+
+		@Override
+		public List<com.llmhub.idx.chunking.Chunk> chunk(String text) {
+			return new TokenChunkingStrategy(20).chunk(text);
+		}
+	}
+
+	private IndexingService 전략을_바꾼다(Path root, com.llmhub.idx.chunking.ChunkingStrategy 전략) {
+		return new IndexingService(
+				new UploadValidator(Map.of("txt", Set.of("text/plain")), 1_000_000),
+				new LocalFileStorage(root),
+				List.of(new TikaDocumentParser()),
+				전략,
+				new FakeEmbeddingClient(설정된_임베딩),
+				chunks,
+				documents,
+				Clock.fixed(고정시각, ZoneOffset.UTC));
 	}
 
 	private IndexingService 같은_저장소로_다시_만든다(Path root, EmbeddingClient embeddingClient) {
@@ -461,6 +509,9 @@ class IndexingServiceTest {
 		/** 마지막 upsert가 받은 업로더. 재색인은 null이어야 한다. */
 		private java.util.UUID 마지막_업로더 = new java.util.UUID(0, 0);
 
+		/** 마지막 upsert가 받은 청킹 버전. 상수가 아니라 전략에서 와야 한다. */
+		private String 마지막_청킹버전;
+
 		@Override
 		public DocumentRecord upsert(
 				String docKey,
@@ -468,8 +519,10 @@ class IndexingServiceTest {
 				String storageKey,
 				List<String> accessTags,
 				String embeddingModel,
+				String chunkingVersion,
 				java.util.UUID uploadedBy) {
 			마지막_업로더 = uploadedBy;
+			마지막_청킹버전 = chunkingVersion;
 			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (byId.size() + 1));
 			DocumentRecord record =
 					new DocumentRecord(id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel);

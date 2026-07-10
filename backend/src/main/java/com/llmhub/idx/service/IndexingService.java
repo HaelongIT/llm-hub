@@ -144,7 +144,15 @@ public final class IndexingService {
 		log.debug("임베딩 완료 docKey={} model={} vectors={}", docKey, spec.model(), vectors.size());
 
 		DocumentRecord document =
-				documentRepository.upsert(docKey, filename, storageKey.get(), accessTags, spec.model(), uploadedBy);
+				documentRepository.upsert(
+						docKey,
+						filename,
+						storageKey.get(),
+						accessTags,
+						spec.model(),
+						// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
+						chunkingStrategy.version(),
+						uploadedBy);
 
 		String indexingRunId = UUID.randomUUID().toString();
 		List<IndexedChunk> indexed =

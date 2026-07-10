@@ -23,6 +23,14 @@ import org.springframework.ai.tokenizer.TokenCountEstimator;
  */
 public final class TokenChunkingStrategy implements ChunkingStrategy {
 
+	/**
+	 * {@code document.chunking_version}에 기록되는 값 (E11).
+	 *
+	 * <p><b>청크 크기를 반영하지 않는다.</b> 크기만 바꾸면 버전이 그대로다. 크기를 버전에 넣으면 기존에 색인된 문서가 전부
+	 * 갑자기 재색인 대상이 되므로, 지금은 전략 교체만 식별한다.
+	 */
+	private static final String VERSION = "token-v0";
+
 	/** 종결 문장부호까지 포함해 한 문장씩 끊는다. 마지막 문장은 부호가 없을 수 있다. */
 	private static final Pattern SENTENCE = Pattern.compile("[^.!?\\n]*[.!?\\n]|[^.!?\\n]+");
 
@@ -39,6 +47,11 @@ public final class TokenChunkingStrategy implements ChunkingStrategy {
 		}
 		this.chunkSizeTokens = chunkSizeTokens;
 		this.tokenCounter = tokenCounter;
+	}
+
+	@Override
+	public String version() {
+		return VERSION;
 	}
 
 	@Override

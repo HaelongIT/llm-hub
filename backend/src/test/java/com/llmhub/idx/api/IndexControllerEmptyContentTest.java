@@ -170,6 +170,7 @@ class IndexControllerEmptyContentTest {
 					String storageKey,
 					List<String> accessTags,
 					String embeddingModel,
+					String chunkingVersion,
 					UUID uploadedBy) {
 				throw new AssertionError("빈 파일은 document를 만들면 안 된다");
 			}

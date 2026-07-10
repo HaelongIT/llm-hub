@@ -13,6 +13,7 @@ public interface DocumentRepository {
 	/**
 	 * {@code docKey}가 이미 있으면 그 레코드를 갱신하고 <b>같은 id</b>를 돌려준다. 없으면 새로 만든다 (S17).
 	 *
+	 * @param chunkingVersion 색인에 쓴 청킹 전략의 버전 (docs/03, E11). 임베딩 모델과 같이 매 색인마다 갱신된다.
 	 * @param uploadedBy 파일을 올린 사람. <b>{@code null}이면 기존 값을 유지한다</b> — 재색인은 보관된 원본을 다시
 	 *     읽을 뿐 누가 다시 올린 것이 아니다.
 	 */
@@ -22,6 +23,7 @@ public interface DocumentRepository {
 			String storageKey,
 			List<String> accessTags,
 			String embeddingModel,
+			String chunkingVersion,
 			java.util.UUID uploadedBy);
 
 	/** 재색인은 이 레코드의 원본 경로에서 다시 읽는다 (S16). */
