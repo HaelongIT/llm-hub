@@ -53,6 +53,22 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] INFRA — Keycloak 개발용 계정: 프로필이 비면 로그인이 막힌다
+- **상황:** `bootstrap-dev.sh`로 `dev-user`/`dev-admin`을 만들고 토큰을 받으려 함.
+- **발견 1:** Keycloak 24+의 **선언적 사용자 프로필**은 `email`·`firstName`·`lastName`을 필수로 본다. 비어 있으면 `VERIFY_PROFILE` 필수 액션이 걸려 로그인이 `invalid_grant: Account is not fully set up`으로 막힌다. **사용자의 `requiredActions`는 빈 배열로 보여** 진단이 어렵다 — 역할·비밀번호·enabled를 아무리 확인해도 원인이 안 나온다. 프로필 세 필드를 채우면 즉시 해결된다.
+- **발견 2:** Git Bash(Windows)는 `docker compose exec ... /opt/keycloak/bin/kcadm.sh` 같은 인자를 **Windows 경로로 변환**해 `no such file or directory`를 낸다. `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`로 막는다(다른 OS에서는 무시되는 환경변수다).
+- **발견 3:** `curl -F 'file=@/tmp/x.txt'`도 같은 경로 변환에 걸린다. 그리고 Git Bash는 **한글 본문을 UTF-8이 아닌 인코딩으로 보낸다** — LiteLLM 로그에 `UnicodeDecodeError`가 찍히고 요청은 `model=None`으로 해석된다. 셸에서 API를 시험할 때 한글을 넣지 말 것.
+- **결정/해결:** 스크립트는 프로필 세 필드를 항상 채운다. 비밀번호·클라이언트 시크릿은 `.env`에서 읽는다(SEC-3). 재실행 가능하다.
+- **영향:** S25, SEC-3, REL-5
+- **다음 주의:** 실제 Keycloak JWT로 백엔드를 때려본 것은 이번이 처음이다. 지금까지 모든 테스트가 `ReactiveJwtDecoder`를 대역으로 썼기 때문에, **서명 검증과 realm_access.roles 파싱이 진짜로 도는지는 검증된 적이 없었다.** 확인 결과 401/403/200이 전부 기대대로였다.
+
+## [2026-07-10] INFRA — LiteLLM의 "No connected db"는 키가 틀렸다는 뜻이다
+- **상황:** 코어가 색인 중 500. 원인은 `HttpClientErrorException$BadRequest: {"error":{"message":"No connected db.","type":"no_db_connection"}}`.
+- **발견:** LiteLLM은 마스터 키와 다른 키를 받으면 **가상 키로 간주해 DB를 조회**하고, DB가 없으니 `No connected db`로 답한다. 키 불일치라는 진짜 원인을 전혀 드러내지 않는다. 여기서는 `application.yml`의 기본값 `changeme`와 `.env`의 `change-me`가 달랐다(코어를 `--args` 없이 띄워 환경변수가 안 실렸다).
+- **결정/해결:** 키를 맞추면 다음 오류로 넘어간다 — `model "bge-m3" not found, try pulling it first`. 즉 두 오류는 서로 다른 층이다. README에 `ollama pull bge-m3`를 명시했다.
+- **영향:** S8-1, E7
+- **다음 주의:** `No connected db`를 보면 DB가 아니라 **키**를 의심한다. 그리고 Gradle 데몬은 나중에 export한 환경변수를 물려받지 않는다 — `--no-daemon`으로 띄우거나 `--args`로 직접 넘긴다.
+
 ## [2026-07-10] PROCESS — 규칙을 실행 가능하게 만들자 문서 안의 모순이 드러났다 (OQ-003)
 - **상황:** `docs/07`은 "테스트만 먼저 커밋해도 좋다(red 커밋)"고 하면서 동시에 "`main`은 항상 테스트 통과 상태 유지", "green 아닌 상태를 임시로 main에 병합 금지"라고 적고 있었다. 게다가 `Tests: N passed` 트레일러는 red 커밋에 붙일 수 없다.
 - **발견:** 브랜치를 쓰면 세 규칙이 다 성립하지만, 우리는 줄곧 `main`에서 직접 작업했다. **모순은 문서를 읽을 때가 아니라 훅을 만들 때 드러났다.** 훅은 red 커밋을 막으며 조용히 한쪽 편을 들고 있었고, 아무도 그 사실을 몰랐다.
