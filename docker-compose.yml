@@ -15,9 +15,18 @@
 
 name: llmhub
 
+# 로그 회전. Docker 기본 json-file 드라이버는 크기 제한이 없어 로그가 무한히 쌓인다 → 호스트 디스크
+# 소진 → PostgreSQL WAL 실패·ES read-only 전환으로 스택 전체가 정지한다 (R-7). 모든 서비스에 건다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:17-alpine
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -35,6 +44,7 @@ services:
   elasticsearch:
     build:
       context: ./docker/elasticsearch
+    logging: *default-logging
     environment:
       discovery.type: single-node
       # 운영은 보안을 켠다. 백엔드는 ES_USERNAME/ES_PASSWORD로 인증한다.
@@ -54,6 +64,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.0
+    logging: *default-logging
     # dev 모드가 아니다. 내장 H2는 운영에서 지원되지 않는다.
     command: ["start", "--import-realm"]
     environment:
@@ -80,6 +91,7 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
+    logging: *default-logging
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_API_KEY: ${LITELLM_API_KEY}
@@ -95,6 +107,7 @@ services:
   backend:
     build:
       context: ./backend
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
@@ -112,6 +125,23 @@ services:
       SEARCH_TOP_K: ${SEARCH_TOP_K:-5}
       AUDIT_SCOPE: ${AUDIT_SCOPE:-FULL}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      # 아래 튜너블들이 컨테이너로 전달되지 않으면 .env에 넣어도 무시된다 — 운영자가 nori를 english로,
+      # 업로드·컨텍스트 상한을 조정해도 아무 일도 안 일어난다 (REL-4). 기본값은 application.yml과 같다.
+      SEARCH_ANALYZER: ${SEARCH_ANALYZER:-nori}
+      ES_INDEX_NAME: ${ES_INDEX_NAME:-llmhub-chunks}
+      SEARCH_BM25_BOOST: ${SEARCH_BM25_BOOST:-1.0}
+      SEARCH_VECTOR_BOOST: ${SEARCH_VECTOR_BOOST:-1.0}
+      CHUNK_SIZE_TOKENS: ${CHUNK_SIZE_TOKENS:-512}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+      MAX_CONTEXT_TOKENS: ${MAX_CONTEXT_TOKENS:-3000}
+      MAX_QUESTION_CHARS: ${MAX_QUESTION_CHARS:-4000}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      # 외부 호출 타임아웃. 없으면 게이트웨이·ES 무응답 시 무한 대기다 (REL-1).
+      EMBEDDING_CONNECT_TIMEOUT: ${EMBEDDING_CONNECT_TIMEOUT:-5s}
+      EMBEDDING_READ_TIMEOUT: ${EMBEDDING_READ_TIMEOUT:-120s}
+      CHAT_STREAM_IDLE_TIMEOUT: ${CHAT_STREAM_IDLE_TIMEOUT:-60s}
+      ES_CONNECT_TIMEOUT: ${ES_CONNECT_TIMEOUT:-5s}
+      ES_RESPONSE_TIMEOUT: ${ES_RESPONSE_TIMEOUT:-30s}
       FILE_STORAGE_ROOT: /app/data/documents
       # 헬스 엔드포인트를 애플리케이션 포트에서 떼어낸다. 이 포트는 publish하지 않으므로
       # 컨테이너 밖에서 보이지 않고, 8080의 API 표면은 전부 인증을 요구한다 (SEC-1, REL-5).
@@ -137,6 +167,7 @@ services:
   frontend:
     build:
       context: ./frontend
+    logging: *default-logging
     environment:
       CORE_BASE_URL: http://backend:8080
       AUTH_SECRET: ${AUTH_SECRET}

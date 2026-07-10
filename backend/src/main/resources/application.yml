@@ -71,8 +71,8 @@ llmhub:
       ADMIN:
         - public
         - restricted
-    # v0는 실질 정책 없이 자리만 (S10).
-    rate-limit-enabled: false
+    # v0는 실질 정책 없이 자리만 (S10). 리터럴로 박으면 RATE_LIMIT_ENABLED가 죽은 설정이 된다 (R-15).
+    rate-limit-enabled: ${RATE_LIMIT_ENABLED:false}
     # BFF만 외부 노출된다 (SEC-1).
     cors-allowed-origins:
       - ${FRONTEND_ORIGIN:http://localhost:3000}
