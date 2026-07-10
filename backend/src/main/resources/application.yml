@@ -84,3 +84,9 @@ llmhub:
     # BM25 점수와 벡터 점수는 스케일이 다르다. 배포마다 튜닝한다 (REL-4).
     bm25-boost: ${SEARCH_BM25_BOOST:1.0}
     vector-boost: ${SEARCH_VECTOR_BOOST:1.0}
+
+  chat:
+    # LLM 컨텍스트는 최근 N턴 (S2, PERF-5).
+    context-turns: ${CONTEXT_TURNS:5}
+    # FULL: 질문·응답 전문 기록. MINIMAL: 전문 없이 추적ID·요청자·근거만 (E5).
+    audit-scope: ${AUDIT_SCOPE:FULL}

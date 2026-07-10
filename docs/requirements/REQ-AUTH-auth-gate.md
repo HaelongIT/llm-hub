@@ -28,7 +28,7 @@ S3, S4, S25 · 경계 E4 · NFR SEC-1, SEC-2
 - [x] 무효/만료 JWT → 401.
 - [x] USER 역할 → {public} 태그.
 - [x] ADMIN 역할 → {public, restricted} 태그.
-- [ ] 태그 확정이 검색 호출보다 먼저 일어남(순서 검증).
+- [x] 태그 확정이 검색 호출보다 먼저 일어남(순서 검증).
 - [x] 필터체인 실행 순서가 CORS→JWT→RBAC→RateLimit.
 - [x] `RoleTagMapper` 매핑 변경 시 다른 코드 변경 없이 태그 결과만 바뀜.
 
