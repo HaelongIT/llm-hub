@@ -1,11 +1,17 @@
 package com.llmhub.chat;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.llmhub.audit.AuditLogRepository;
+import com.llmhub.audit.AuditRecord;
+import com.llmhub.audit.AuditScope;
 import com.llmhub.common.Blocking;
 import com.llmhub.search.SearchService;
 import com.llmhub.search.Source;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,16 +26,18 @@ import reactor.core.publisher.Mono;
  * 질문을 받아 근거 기반 답변을 이벤트 SSE로 스트리밍한다.
  *
  * <p><b>검색은 Advisor 안이 아니라 여기서 명시적으로 호출한다.</b> S6가 "근거는 서버 검색 결과에서만 나온다"를
- * 요구하므로, 그 사실이 코드 구조에 드러나야 한다. 덕분에 {@code sources}를 첫 {@code text} 토큰보다 먼저 확정
- * 발행할 수 있다. 스트리밍에서 Advisor의 검색 결과가 첫 토큰보다 먼저 방출된다는 보장은 문서화되어 있지 않다.
+ * 요구하므로 그 사실이 코드 구조에 드러나야 한다. 덕분에 {@code sources}를 첫 {@code text} 토큰보다 먼저 확정
+ * 발행할 수 있다.
+ *
+ * <p><b>스트림은 저장을 기다리지 않는다.</b> 이력·감사 저장은 격리 스케줄러로 넘기고 구독만 한다 (S13). 저장 실패는
+ * 로깅할 뿐 사용자 응답을 되돌리지 않는다 (REL-2). 감사 저장 실패는 경고 로그로 눈에 띄게 한다.
  *
  * <p>권한을 판단하지 않는다. AUTH가 앞단 게이트에서 확정한 태그를 소비만 한다 (S4).
- *
- * <p>블로킹 검색은 격리 스케줄러로 넘긴다 (S13).
  */
 public final class ChatService {
 
 	private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+	private static final ObjectMapper JSON = new ObjectMapper();
 
 	private static final String SYSTEM_PROMPT =
 			"""
@@ -43,44 +51,106 @@ public final class ChatService {
 	private final SearchService searchService;
 	private final ChatClient chatClient;
 	private final ContextAssembler contextAssembler;
+	private final ChatHistoryRepository historyRepository;
+	private final AuditLogRepository auditLogRepository;
+	private final AuditScope auditScope;
 
-	public ChatService(SearchService searchService, ChatClient chatClient, ContextAssembler contextAssembler) {
+	public ChatService(
+			SearchService searchService,
+			ChatClient chatClient,
+			ContextAssembler contextAssembler,
+			ChatHistoryRepository historyRepository,
+			AuditLogRepository auditLogRepository,
+			AuditScope auditScope) {
 		this.searchService = searchService;
 		this.chatClient = chatClient;
 		this.contextAssembler = contextAssembler;
+		this.historyRepository = historyRepository;
+		this.auditLogRepository = auditLogRepository;
+		this.auditScope = auditScope;
 	}
 
 	/**
-	 * @param accessTags AUTH가 확정한 태그. 재계산하지 않는다.
+	 * @param accessTags AUTH가 확정한 태그. 재계산하지 않는다 (S4).
 	 * @param history 세션 이력. 최근 N턴만 컨텍스트에 실린다 (E2).
 	 */
 	public Flux<ChatEvent> stream(
-			String question, Set<String> accessTags, List<Message> history, String traceId) {
+			UUID sessionId,
+			String requesterId,
+			String question,
+			Set<String> accessTags,
+			List<Message> history,
+			String traceId) {
+
+		StringBuilder answer = new StringBuilder();
 
 		return Blocking.call(() -> searchService.search(question, accessTags))
-				.flatMapMany(sources -> sourcesThenAnswer(question, history, traceId, sources))
-				.onErrorResume(error -> {
-					// 깨끗한 실패. 자동 우회·페일오버 없이 error 이벤트로 스트림을 닫는다 (S8-3).
-					log.error("채팅 스트림 실패 traceId={}", traceId, error);
-					return Flux.just(new ChatEvent.Error(error.getMessage()));
-				});
+				.flatMapMany(
+						sources ->
+								Flux.concat(
+												// 근거 먼저. LLM이 한 글자도 내기 전에 확정된다 (S6).
+												Mono.<ChatEvent>just(new ChatEvent.Sources(sources)),
+												answerStream(question, history, sources, answer),
+												Mono.<ChatEvent>just(new ChatEvent.Done(traceId)))
+										// 스트림이 성공적으로 끝난 뒤에만 저장한다. 실패한 대화는 이력으로 남기지 않는다.
+										.doOnComplete(
+												() ->
+														persist(
+																sessionId, requesterId, question, answer.toString(), sources, traceId)))
+				.onErrorResume(
+						error -> {
+							// 깨끗한 실패. 자동 우회·페일오버 없이 error 이벤트로 스트림을 닫는다 (S8-3).
+							log.error("채팅 스트림 실패 traceId={}", traceId, error);
+							return Flux.just(new ChatEvent.Error(error.getMessage()));
+						});
 	}
 
-	private Flux<ChatEvent> sourcesThenAnswer(
-			String question, List<Message> history, String traceId, List<Source> sources) {
-		return Flux.concat(
-				// 근거 먼저. LLM이 한 글자도 내기 전에 확정된다.
-				Mono.just(new ChatEvent.Sources(sources)),
-				answerStream(question, history, sources),
-				Mono.just(new ChatEvent.Done(traceId)));
-	}
-
-	private Flux<ChatEvent> answerStream(String question, List<Message> history, List<Source> sources) {
+	private Flux<ChatEvent> answerStream(
+			String question, List<Message> history, List<Source> sources, StringBuilder answer) {
 		return chatClient
 				.prompt(promptOf(question, history, sources))
 				.stream()
 				.content()
+				.doOnNext(answer::append)
 				.map(ChatEvent.Text::new);
+	}
+
+	/** 저장을 격리 스케줄러로 던지고 <b>구독만 한다</b>. 스트림은 여기서 기다리지 않는다 (S13). */
+	private void persist(
+			UUID sessionId,
+			String requesterId,
+			String question,
+			String answer,
+			List<Source> sources,
+			String traceId) {
+
+		String sourcesJson = toJson(sources);
+
+		Blocking.run(
+						() -> {
+							historyRepository.append(sessionId, Message.user(question), null);
+							historyRepository.append(sessionId, Message.assistant(answer), sourcesJson);
+						})
+				.doOnError(e -> log.error("이력 저장 실패 traceId={} — 사용자 응답은 정상이다", traceId, e))
+				.onErrorComplete()
+				.subscribe();
+
+		Blocking.run(
+						() ->
+								auditLogRepository.record(
+										auditRecordOf(traceId, requesterId, question, answer, sourcesJson)))
+				// 감사 저장 실패는 눈에 띄어야 한다 (REL-2).
+				.doOnError(e -> log.warn("감사 저장 실패 traceId={} requester={} — 감사 공백이 생겼다", traceId, requesterId, e))
+				.onErrorComplete()
+				.subscribe();
+	}
+
+	/** 기록 범위는 설정으로 조절한다. 범위 변경이 스키마 변경을 요구하지 않는다 (E5). */
+	private AuditRecord auditRecordOf(
+			String traceId, String requesterId, String question, String answer, String sourcesJson) {
+		return auditScope == AuditScope.FULL
+				? new AuditRecord(traceId, requesterId, question, answer, sourcesJson)
+				: new AuditRecord(traceId, requesterId, null, null, sourcesJson);
 	}
 
 	private Prompt promptOf(String question, List<Message> history, List<Source> sources) {
@@ -101,5 +171,14 @@ public final class ChatService {
 				.map(s -> "- (%s, %s) %s".formatted(s.documentName(), s.location(), s.text()))
 				.reduce((a, b) -> a + "\n" + b)
 				.orElse("(검색된 근거가 없습니다)");
+	}
+
+	private static String toJson(List<Source> sources) {
+		try {
+			return JSON.writeValueAsString(sources);
+		} catch (JsonProcessingException e) {
+			log.warn("근거 직렬화 실패", e);
+			return null;
+		}
 	}
 }

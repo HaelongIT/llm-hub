@@ -37,9 +37,38 @@ class ChatServiceTest {
 	private final AtomicReference<String> 검색_실행_스레드 = new AtomicReference<>();
 	private final AtomicReference<Prompt> 받은_프롬프트 = new AtomicReference<>();
 
+	private static final java.util.UUID 세션ID = java.util.UUID.randomUUID();
+	private static final String 요청자 = "user-1";
+
 	private ChatService 서비스(SearchService search, ChatModel model) {
 		return new ChatService(
-				search, ChatClient.builder(model).build(), new RecentTurnsContextAssembler(2));
+				search,
+				ChatClient.builder(model).build(),
+				new RecentTurnsContextAssembler(2),
+				저장하지_않는_이력(),
+				record -> {},
+				com.llmhub.audit.AuditScope.FULL);
+	}
+
+	/** 이 테스트는 스트리밍만 본다. 저장은 ChatPersistenceTest의 몫이다. */
+	private static ChatHistoryRepository 저장하지_않는_이력() {
+		return new ChatHistoryRepository() {
+			@Override
+			public java.util.UUID createSession(java.util.UUID userId, String title) {
+				return java.util.UUID.randomUUID();
+			}
+
+			@Override
+			public void deleteSession(java.util.UUID sessionId) {}
+
+			@Override
+			public List<Message> history(java.util.UUID sessionId) {
+				return List.of();
+			}
+
+			@Override
+			public void append(java.util.UUID sessionId, Message message, String sourcesJson) {}
+		};
 	}
 
 	private SearchService 검색_대역(List<Source> 결과) {
@@ -62,7 +91,7 @@ class ChatServiceTest {
 		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("연차", "휴가는 ", "15일입니다."));
 
 		List<ChatEvent> events =
-				service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).isNotNull();
 		assertThat(events.get(0))
@@ -78,7 +107,7 @@ class ChatServiceTest {
 		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("답"));
 
 		List<ChatEvent> events =
-				service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(((ChatEvent.Sources) events.get(0)).sources())
 				.as("CHAT은 근거를 새로 만들지 않는다. SEARCH가 만든 것을 그대로 전달한다")
@@ -91,7 +120,7 @@ class ChatServiceTest {
 		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("연차", "휴가는 ", "15일입니다."));
 
 		List<ChatEvent> events =
-				service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events)
 				.filteredOn(ChatEvent.Text.class::isInstance)
@@ -106,7 +135,7 @@ class ChatServiceTest {
 		ChatService service = 서비스(검색_대역(검색결과), 고장난_모델);
 
 		List<ChatEvent> events =
-				service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).last().isInstanceOf(ChatEvent.Error.class);
 		assertThat(events).noneMatch(ChatEvent.Done.class::isInstance);
@@ -126,7 +155,7 @@ class ChatServiceTest {
 		ChatService service = 서비스(고장난_검색, 텍스트를_흘리는_모델("답"));
 
 		List<ChatEvent> events =
-				service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).singleElement().isInstanceOf(ChatEvent.Error.class);
 	}
@@ -136,7 +165,7 @@ class ChatServiceTest {
 	void 검색은_격리_스케줄러에서_돈다() {
 		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("답"));
 
-		service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").blockLast();
+		service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").blockLast();
 
 		assertThat(검색_실행_스레드.get())
 				.as("블로킹 ES 호출이 이벤트 루프를 점유하면 스트리밍이 굶는다 (S13)")
@@ -156,7 +185,7 @@ class ChatServiceTest {
 						Message.user("더 최근 질문"),
 						Message.assistant("더 최근 답"));
 
-		service.stream("후속 질문", Set.of("public"), 이력, "trace-1").blockLast();
+		service.stream(세션ID, 요청자, "후속 질문", Set.of("public"), 이력, "trace-1").blockLast();
 
 		String 프롬프트 = 받은_프롬프트.get().getContents();
 		assertThat(프롬프트).contains("더 최근 질문").contains("후속 질문");
@@ -168,7 +197,7 @@ class ChatServiceTest {
 	void 근거가_프롬프트에_주입된다() {
 		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("답"));
 
-		service.stream("연차휴가는?", Set.of("public"), List.of(), "trace-1").blockLast();
+		service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").blockLast();
 
 		assertThat(받은_프롬프트.get().getContents())
 				.as("근거 없이 답하면 LLM이 지어낸다. 서버가 검색한 조각을 넣는다 (S6)")
