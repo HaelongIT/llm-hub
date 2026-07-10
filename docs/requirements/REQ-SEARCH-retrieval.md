@@ -32,7 +32,7 @@ S3, S4, S8-4, S11, S15, S18 · 경계 E3, E9, E10, E16 · NFR SEC-2, PERF-3
 - [x] USER({public})가 restricted 조각을 검색 → 결과에 없음.
 - [x] ADMIN({public,restricted})는 restricted 조각을 검색 → 결과에 있음.
 - [x] sources의 각 항목이 실제 색인된 조각과 대응(지어낸 것 아님).
-- [ ] 검색 임베딩 모델이 설정값(색인과 동일).
+- [x] 검색 임베딩 모델이 설정값(색인과 동일).
 - [x] `ResultMerger` 교체 시 색인 재생성 없이 병합만 바뀜.
 
 ## 하지 않을 것 (v0)

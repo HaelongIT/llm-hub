@@ -64,3 +64,11 @@ llmhub:
     api-key: ${LITELLM_API_KEY:changeme}
     model: ${EMBEDDING_MODEL:placeholder-embedding-model}
     dimensions: ${EMBEDDING_DIM:1024}
+
+  search:
+    # 색인과 같은 인덱스를 읽는다. 두 모듈은 코드가 아니라 이 스키마로만 만난다.
+    index-name: ${ES_INDEX_NAME:llmhub-chunks}
+    top-k: ${SEARCH_TOP_K:5}
+    # BM25 점수와 벡터 점수는 스케일이 다르다. 배포마다 튜닝한다 (REL-4).
+    bm25-boost: ${SEARCH_BM25_BOOST:1.0}
+    vector-boost: ${SEARCH_VECTOR_BOOST:1.0}
