@@ -100,13 +100,7 @@ class IndexControllerTest {
 	@Test
 	@DisplayName("USER가 재색인을 시도하면 403이다")
 	void USER는_재색인할_수_없다() {
-		client
-				.post()
-				.uri("/api/index/규정-2026/reindex")
-				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
-				.exchange()
-				.expectStatus()
-				.isForbidden();
+		재색인(USER_토큰, "규정-2026").expectStatus().isForbidden();
 	}
 
 	@Test
@@ -124,7 +118,57 @@ class IndexControllerTest {
 	@Test
 	@DisplayName("인증 없이 재색인을 시도하면 401이다")
 	void 인증이_없으면_재색인도_401이다() {
-		client.post().uri("/api/index/규정-2026/reindex").exchange().expectStatus().isUnauthorized();
+		client
+				.post()
+				.uri(b -> b.path("/api/index/reindex").queryParam("docKey", "규정-2026").build())
+				.exchange()
+				.expectStatus()
+				.isUnauthorized();
+	}
+
+	@Test
+	@DisplayName("ADMIN은 업로드한 문서를 원본에서 재색인할 수 있다")
+	void ADMIN은_재색인할_수_있다() {
+		업로드(ADMIN_토큰).expectStatus().isOk();
+		chunks.저장된.clear();
+
+		재색인(ADMIN_토큰, "규정-2026").expectStatus().isOk().expectBody().jsonPath("$.chunkCount").isEqualTo(1);
+
+		assertThat(chunks.저장된).as("재색인은 파일 없이 doc_key만으로 원본을 다시 읽는다 (S16)").isNotEmpty();
+		assertThat(chunks.실행_스레드)
+				.as("재색인도 블로킹이다. 이벤트 루프에서 돌면 안 된다 (S13)")
+				.allSatisfy(name -> assertThat(name).startsWith("boundedElastic-"));
+	}
+
+	@Test
+	@DisplayName("없는 doc_key로 재색인하면 404다")
+	void 없는_문서는_404다() {
+		재색인(ADMIN_토큰, "존재하지-않는-키").expectStatus().isNotFound();
+
+		assertThat(chunks.저장된).isEmpty();
+	}
+
+	@Test
+	@DisplayName("ADMIN은 재색인 대상 목록을 조회할 수 있다")
+	void ADMIN은_재색인_대상을_조회한다() {
+		client
+				.get()
+				.uri("/api/index/stale")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + ADMIN_토큰)
+				.exchange()
+				.expectStatus()
+				.isOk()
+				.expectBody()
+				.jsonPath("$")
+				.isArray();
+	}
+
+	private WebTestClient.ResponseSpec 재색인(String token, String docKey) {
+		return client
+				.post()
+				.uri(b -> b.path("/api/index/reindex").queryParam("docKey", docKey).build())
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+				.exchange();
 	}
 
 	private WebTestClient.ResponseSpec 업로드(String token) {

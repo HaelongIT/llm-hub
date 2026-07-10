@@ -4,14 +4,17 @@ import com.llmhub.common.Blocking;
 import com.llmhub.idx.service.IndexRequest;
 import com.llmhub.idx.service.IndexResult;
 import com.llmhub.idx.service.IndexingService;
+import com.llmhub.idx.service.StaleDocument;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
@@ -59,6 +62,23 @@ public class IndexController {
 																contentType == null ? "" : contentType.toString(),
 																content,
 																tags))));
+	}
+
+	/**
+	 * 보관된 원본에서 다시 색인한다 (S16). 파일을 받지 않는다.
+	 *
+	 * <p>{@code docKey}를 경로 변수가 아니라 쿼리 파라미터로 받는다. 업로드 때 사용자가 정하는 임의의 문자열이라 {@code
+	 * /}가 들어갈 수 있고, 그러면 경로 변수로는 주소를 만들 수 없다.
+	 */
+	@PostMapping("/reindex")
+	public Mono<IndexResult> reindex(@RequestParam("docKey") String docKey) {
+		return Blocking.call(() -> indexingService.reindex(docKey));
+	}
+
+	/** 현재 설정과 다른 임베딩 모델로 색인된 문서들. 운영자가 하나씩 재색인한다 (E9). */
+	@GetMapping("/stale")
+	public Mono<List<StaleDocument>> stale() {
+		return Blocking.call(indexingService::staleDocuments);
 	}
 
 	private static byte[] toBytes(DataBuffer buffer) {
