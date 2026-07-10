@@ -13,10 +13,14 @@
 <type>(<scope>): <요약>
 
 <본문: 왜 이렇게 했는지, 관련 결정 S/E/REQ>
+
+Tests: N passed
+관련: S…, E…, REQ…
 ```
 - **type:** `feat`(기능), `test`(테스트), `fix`(버그), `refactor`(동작 불변 개선), `docs`(문서), `chore`(설정·빌드), `perf`(성능).
 - **scope:** 모듈 약칭 — `idx`, `auth`, `search`, `chat`, `audit`, `infra`, `docs`.
 - 요약은 명령형 현재형, 한국어 또는 영어 일관되게.
+- **`Tests: N passed` 트레일러는 기능 커밋에 필수다.** 실제 러너 출력에서 옮긴다. 증거가 없으면 green이 아니고, green이 아니면 커밋하지 않는다(`docs/08` D-5). 이번 커밋에서 연 보류 질문이 있으면 `OQ-NNN`도 본문에 적는다.
 
 예:
 ```
