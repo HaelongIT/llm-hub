@@ -45,6 +45,7 @@ public class ChatConfig {
 				contextAssembler,
 				historyRepository,
 				auditLogRepository,
-				properties.auditScope());
+				properties.auditScope(),
+				properties.streamIdleTimeout());
 	}
 }

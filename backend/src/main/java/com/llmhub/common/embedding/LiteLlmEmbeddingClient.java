@@ -1,9 +1,12 @@
 package com.llmhub.common.embedding;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -18,10 +21,22 @@ public final class LiteLlmEmbeddingClient implements EmbeddingClient {
 	private final RestClient restClient;
 	private final EmbeddingSpec spec;
 
-	public LiteLlmEmbeddingClient(String baseUrl, String apiKey, EmbeddingSpec spec) {
+	/**
+	 * @param readTimeout 게이트웨이가 연결만 받고 응답하지 않으면 이 시간 뒤에 포기한다 (REL-1). 타임아웃이 없으면 상대가
+	 *     소켓을 닫을 때까지 boundedElastic 스레드가 묶인다. 임베딩은 조각 수에 비례해 오래 걸리므로 넉넉해야 한다 — 큰
+	 *     문서 한 건이 정상적으로 수십 초일 수 있다.
+	 */
+	public LiteLlmEmbeddingClient(
+			String baseUrl, String apiKey, EmbeddingSpec spec, Duration connectTimeout, Duration readTimeout) {
+		JdkClientHttpRequestFactory requestFactory =
+				new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(connectTimeout).build());
+		// JDK HttpClient에는 read 타임아웃 기본값이 없다. 명시하지 않으면 무한 대기다.
+		requestFactory.setReadTimeout(readTimeout);
+
 		this.restClient =
 				RestClient.builder()
 						.baseUrl(baseUrl)
+						.requestFactory(requestFactory)
 						.defaultHeader("Authorization", "Bearer " + apiKey)
 						.build();
 		this.spec = spec;

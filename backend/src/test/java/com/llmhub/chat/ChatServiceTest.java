@@ -41,13 +41,18 @@ class ChatServiceTest {
 	private static final String 요청자 = "user-1";
 
 	private ChatService 서비스(SearchService search, ChatModel model) {
+		return 서비스(search, model, java.time.Duration.ofSeconds(60));
+	}
+
+	private ChatService 서비스(SearchService search, ChatModel model, java.time.Duration 유휴_타임아웃) {
 		return new ChatService(
 				search,
 				ChatClient.builder(model).build(),
 				new RecentTurnsContextAssembler(2, 100_000),
 				저장하지_않는_이력(),
 				record -> {},
-				com.llmhub.audit.AuditScope.FULL);
+				com.llmhub.audit.AuditScope.FULL,
+				유휴_타임아웃);
 	}
 
 	/** 이 테스트는 스트리밍만 본다. 저장은 ChatPersistenceTest의 몫이다. */
@@ -168,6 +173,46 @@ class ChatServiceTest {
 				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).singleElement().isInstanceOf(ChatEvent.Error.class);
+	}
+
+	@Test
+	@DisplayName("LLM이 토큰을 멈추면 유휴 타임아웃이 error 이벤트로 스트림을 닫는다")
+	void 멈춘_LLM은_유휴_타임아웃으로_닫힌다() {
+		// 게이트웨이가 조용히 멈추면(모델 로딩·GPU 점유) 에러가 emit되지 않는다. onErrorResume은
+		// 에러가 와야 도는데 아무것도 오지 않으므로 done도 error도 나가지 않는다 → 사용자 무한 로딩.
+		// 전체 응답 타임아웃이 아니라 '토큰 사이 유휴' 타임아웃이라 긴 답변은 잘리지 않는다 (REL-1).
+		ChatModel 멈춘_모델 = new 대역_모델(prompt -> Flux.never());
+		ChatService service = 서비스(검색_대역(검색결과), 멈춘_모델, java.time.Duration.ofMillis(200));
+
+		// block에 상한을 준다. 유휴 타임아웃이 사라지면 이 테스트는 '매달리는' 게 아니라 '실패해야' 한다.
+		List<ChatEvent> events =
+				service
+						.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1")
+						.collectList()
+						.block(java.time.Duration.ofSeconds(5));
+
+		assertThat(events).first().isInstanceOf(ChatEvent.Sources.class);
+		assertThat(events).last().isInstanceOf(ChatEvent.Error.class);
+		assertThat(events).noneMatch(ChatEvent.Done.class::isInstance);
+	}
+
+	@Test
+	@DisplayName("토큰이 유휴 시간 안에 계속 오면 긴 답변도 잘리지 않는다")
+	void 토큰이_계속_오면_잘리지_않는다() {
+		// 유휴 타임아웃 200ms, 토큰 간격 50ms × 5개 = 250ms. 전체 응답 타임아웃이었다면 잘렸을 것이다.
+		ChatModel 느린_모델 =
+				new 대역_모델(
+						prompt ->
+								Flux.interval(java.time.Duration.ofMillis(50))
+										.take(5)
+										.map(i -> 응답("조각" + i)));
+		ChatService service = 서비스(검색_대역(검색결과), 느린_모델, java.time.Duration.ofMillis(200));
+
+		List<ChatEvent> events =
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+
+		assertThat(events).last().isEqualTo(new ChatEvent.Done("trace-1"));
+		assertThat(events).filteredOn(ChatEvent.Text.class::isInstance).hasSize(5);
 	}
 
 	@Test

@@ -57,20 +57,28 @@ public final class ChatService {
 	private final ChatHistoryRepository historyRepository;
 	private final AuditLogRepository auditLogRepository;
 	private final AuditScope auditScope;
+	private final java.time.Duration streamIdleTimeout;
 
+	/**
+	 * @param streamIdleTimeout 토큰 <b>사이</b>의 유휴 상한. 게이트웨이가 조용히 멈추면 에러가 emit되지 않아
+	 *     {@code onErrorResume}이 돌지 않는다 — done도 error도 나가지 않아 사용자가 무한히 기다린다 (REL-1).
+	 *     전체 응답 상한이 아니므로 토큰이 계속 오는 긴 답변은 잘리지 않는다.
+	 */
 	public ChatService(
 			SearchService searchService,
 			ChatClient chatClient,
 			ContextAssembler contextAssembler,
 			ChatHistoryRepository historyRepository,
 			AuditLogRepository auditLogRepository,
-			AuditScope auditScope) {
+			AuditScope auditScope,
+			java.time.Duration streamIdleTimeout) {
 		this.searchService = searchService;
 		this.chatClient = chatClient;
 		this.contextAssembler = contextAssembler;
 		this.historyRepository = historyRepository;
 		this.auditLogRepository = auditLogRepository;
 		this.auditScope = auditScope;
+		this.streamIdleTimeout = streamIdleTimeout;
 	}
 
 	/**
@@ -121,6 +129,8 @@ public final class ChatService {
 				.prompt(promptOf(question, history, sources))
 				.stream()
 				.content()
+				// 토큰 사이 유휴 상한. 넘으면 TimeoutException이 나고 onErrorResume이 error 이벤트로 닫는다.
+				.timeout(streamIdleTimeout)
 				.doOnNext(answer::append)
 				.map(ChatEvent.Text::new);
 	}

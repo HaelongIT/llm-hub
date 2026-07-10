@@ -50,7 +50,8 @@ class ChatPersistenceTest {
 				new RecentTurnsContextAssembler(2, 100_000),
 				이력,
 				감사,
-				scope);
+				scope,
+				java.time.Duration.ofSeconds(60));
 	}
 
 	private List<ChatEvent> 스트리밍한다(ChatService service) {
@@ -163,7 +164,8 @@ class ChatPersistenceTest {
 						new RecentTurnsContextAssembler(2, 100_000),
 						이력,
 						감사,
-						AuditScope.FULL);
+						AuditScope.FULL,
+						java.time.Duration.ofSeconds(60));
 
 		List<ChatEvent> events =
 				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();

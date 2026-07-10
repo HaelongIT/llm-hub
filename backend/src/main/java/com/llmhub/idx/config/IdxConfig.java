@@ -36,7 +36,8 @@ public class IdxConfig {
 
 	@Bean
 	EmbeddingClient embeddingClient(EmbeddingProperties properties, EmbeddingSpec spec) {
-		return new LiteLlmEmbeddingClient(properties.baseUrl(), properties.apiKey(), spec);
+		return new LiteLlmEmbeddingClient(
+				properties.baseUrl(), properties.apiKey(), spec, properties.connectTimeout(), properties.readTimeout());
 	}
 
 	/** 운영에서 ES는 보안이 켜져 있다. 자격증명은 설정값이다 (SEC-1, SEC-3). */

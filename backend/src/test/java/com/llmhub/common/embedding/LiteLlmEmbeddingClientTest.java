@@ -44,7 +44,12 @@ class LiteLlmEmbeddingClientTest {
 	}
 
 	private LiteLlmEmbeddingClient 클라이언트() {
-		return new LiteLlmEmbeddingClient("http://127.0.0.1:" + 게이트웨이.getAddress().getPort(), "test-key", 스펙);
+		return new LiteLlmEmbeddingClient(
+				"http://127.0.0.1:" + 게이트웨이.getAddress().getPort(),
+				"test-key",
+				스펙,
+				java.time.Duration.ofSeconds(2),
+				java.time.Duration.ofSeconds(5));
 	}
 
 	private void 응답한다(int status, String body) {

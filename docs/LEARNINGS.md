@@ -324,3 +324,10 @@
 - **결정/해결:** 임베딩과 대칭으로 만들었다 — `EmbeddingClient.spec().model()`이 있듯 `ChunkingStrategy.version()`을 두고, `IndexingService`가 매 색인마다 넘긴다. persistence의 상수는 지웠다.
 - **주의:** `version()`을 `"token-v0"`으로 **유지**했다. 값을 바꾸면 이미 색인된 모든 문서가 갑자기 재색인 대상이 된다. 같은 이유로 `chunkSizeTokens`를 버전에 넣지 않았다.
 - **다음 주의:** "무엇으로 색인했는가"를 기록하는 필드는 **그것을 실제로 수행한 컴포넌트가 알려줘야 한다.** 다른 계층의 상수로 두면 둘이 어긋나는 순간을 아무도 모른다. 그리고 기록만 고쳤다고 조회까지 된 것은 아니다 — `staleDocuments()`는 여전히 임베딩 모델만 본다(OQ-010).
+
+## [2026-07-11] REL — 무한 대기는 세 곳이었고, 두 곳만 닫혔다 (R-2)
+- **상황:** 외부 호출에 타임아웃이 없어(REL-1 위반) 게이트웨이가 조용히 멈추면 boundedElastic 스레드가 영구히 묶인다. 실측으로 확인했었다(응답 없는 소켓 → 120초 뒤 소켓이 닫힐 때까지 반환 없음).
+- **JDK HttpClient에는 read 타임아웃 기본값이 없다.** `HttpClient.newBuilder().connectTimeout(...)`은 **연결** 상한일 뿐, 연결 후 무응답은 못 막는다. read는 `JdkClientHttpRequestFactory.setReadTimeout(...)`으로 따로 줘야 한다. 둘 다 줘야 무한 대기가 닫힌다.
+- **SSE 유휴 타임아웃은 `Flux.timeout(Duration)`이다 — 전체 응답 상한이 아니라 토큰 '사이' 상한.** LLM이 조용히 멈추면 에러가 emit되지 않아 `onErrorResume`이 돌지 않는다(done도 error도 안 나감 → 브라우저 무한 로딩). `timeout`이 `TimeoutException`을 만들어 그때서야 `onErrorResume`이 `ChatEvent.Error`로 닫는다. 토큰이 계속 오는 긴 답변은 잘리지 않는다.
+- **뮤테이션으로 두 방어를 각각 검증했다.** 프로덕션에서 타임아웃을 빼면 테스트가 **실패가 아니라 매달린다**(Gradle 데몬이 죽었다) — `block()`/`assertTimeout`에 상한을 주지 않으면 뮤테이션 테스트가 무의미하다. `block(Duration.ofSeconds(5))`로 고친 뒤에야 red가 드러났다.
+- **남은 것:** **ES transport 타임아웃은 아직 없다.** `ElasticsearchTransportConfig.Builder`에 타임아웃 메서드가 없어(이전 세션에서 확인) RestClient 계층에서 소켓 타임아웃을 줘야 한다. R-3/R-11(유령 문서)과 같은 색인 경로라 함께 다룬다. **"타임아웃을 넣었다"가 "모든 외부 호출에 넣었다"는 아니다** — 세 곳(임베딩·SSE·ES) 중 둘만 닫혔다.
