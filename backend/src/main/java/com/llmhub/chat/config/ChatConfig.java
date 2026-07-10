@@ -23,7 +23,7 @@ public class ChatConfig {
 
 	@Bean
 	ContextAssembler contextAssembler(ChatProperties properties) {
-		return new RecentTurnsContextAssembler(properties.contextTurns());
+		return new RecentTurnsContextAssembler(properties.contextTurns(), properties.maxContextTokens());
 	}
 
 	@Bean

@@ -197,6 +197,25 @@ class ChatControllerTest {
 				.anySatisfy(p -> assertThat(p).contains("지난번에 연차 얘기를 했다"));
 	}
 
+	@Test
+	@DisplayName("상한을 넘는 질문은 400이고 검색에 닿지 않는다")
+	void 너무_긴_질문은_400이다() {
+		// 이력은 조립기가 예산으로 자르지만 지금 질문은 자를 수 없다 (PERF-5, SEC-4).
+		String 긴_질문 = "가".repeat(4001);
+
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of("question", 긴_질문))
+				.exchange()
+				.expectStatus()
+				.isBadRequest();
+
+		assertThat(검색.호출된_태그).as("거부된 요청은 임베딩·검색 비용을 쓰지 않는다").isEmpty();
+	}
+
 	private UUID ADMIN의_세션을_만든다(String 이력) {
 		return 세션을_만든다("subject-ADMIN", 이력);
 	}

@@ -5,6 +5,7 @@ import com.llmhub.chat.ChatEvent;
 import com.llmhub.chat.ChatHistoryRepository;
 import com.llmhub.chat.ChatService;
 import com.llmhub.chat.Message;
+import com.llmhub.chat.config.ChatProperties;
 import com.llmhub.common.Blocking;
 import com.llmhub.common.TraceId;
 import com.llmhub.common.user.AppUserRepository;
@@ -37,18 +38,27 @@ public class ChatController {
 	private final ChatService chatService;
 	private final ChatHistoryRepository historyRepository;
 	private final AppUserRepository userRepository;
+	private final int maxQuestionChars;
 
 	public ChatController(
-			ChatService chatService, ChatHistoryRepository historyRepository, AppUserRepository userRepository) {
+			ChatService chatService,
+			ChatHistoryRepository historyRepository,
+			AppUserRepository userRepository,
+			ChatProperties properties) {
 		this.chatService = chatService;
 		this.historyRepository = historyRepository;
 		this.userRepository = userRepository;
+		this.maxQuestionChars = properties.maxQuestionChars();
 	}
 
 	@PostMapping(value = "/api/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	public Flux<ServerSentEvent<Object>> stream(
 			@RequestBody ChatStreamRequest request, @AuthenticationPrincipal Jwt jwt) {
 
+		// 이력은 조립기가 예산으로 자르지만 지금 질문은 자를 수 없다. 거부한다 (PERF-5, SEC-4).
+		if (request.question() != null && request.question().length() > maxQuestionChars) {
+			throw new QuestionTooLongException(request.question().length(), maxQuestionChars);
+		}
 		String requesterId = jwt.getSubject();
 
 		// 추적 ID는 필터가 이미 발급했다. 여기서 새로 만들면 응답 헤더의 값과 감사 기록의 값이 갈린다 (REL-3).

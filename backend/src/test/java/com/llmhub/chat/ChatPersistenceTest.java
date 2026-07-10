@@ -47,7 +47,7 @@ class ChatPersistenceTest {
 		return new ChatService(
 				검색_대역(),
 				ChatClient.builder(모델("연차", "휴가는 15일입니다.")).build(),
-				new RecentTurnsContextAssembler(2),
+				new RecentTurnsContextAssembler(2, 100_000),
 				이력,
 				감사,
 				scope);
@@ -160,7 +160,7 @@ class ChatPersistenceTest {
 				new ChatService(
 						검색_대역(),
 						ChatClient.builder(고장난_모델()).build(),
-						new RecentTurnsContextAssembler(2),
+						new RecentTurnsContextAssembler(2, 100_000),
 						이력,
 						감사,
 						AuditScope.FULL);
