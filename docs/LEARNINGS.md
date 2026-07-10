@@ -53,6 +53,14 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] IDX — 바이너리 픽스처는 코드로 만든다 (PDF·hwp)
+- **상황:** "PDF 업로드", "hwp 업로드" 시나리오를 검증하려면 실제 바이너리가 필요했다.
+- **발견:** 저장소에 바이너리를 커밋하거나 PDF 생성 라이브러리를 의존성에 추가하지 않고도 된다. PDF는 규격대로 객체·xref·trailer를 조립하면 Tika(PDFBox)가 읽는다(`MinimalPdf`). hwp는 `BlankFileMaker.make()` → `paragraph.getText().addString(...)` → `HWPWriter.toStream(...)`으로 만든다(`MinimalHwp`). 읽기는 `HWPReader.fromInputStream` + `TextExtractor.extract(hwp, TextExtractMethod.OnlyMainParagraph)`.
+- **결정/해결:** 픽스처 생성기를 테스트 코드에 둔다. 내용이 코드로 드러나 리뷰 가능하고 의존성이 늘지 않는다. PDF 본문은 ASCII만 담는다 — 한국어를 넣으려면 폰트 임베딩이 필요한데, 이 테스트가 확인하려는 것은 추출 경로이지 폰트가 아니다.
+- **한계(정직하게):** hwp 픽스처를 hwplib으로 만들고 hwplib으로 읽으므로 **어댑터 배선**을 검증하지, 한글 워드프로세서가 실제로 저장한 파일과의 호환성은 검증하지 않는다. 후자는 진짜 샘플이 필요하다.
+- **영향:** REQ-IDX, S8-2, E8
+- **다음 주의:** Testcontainers 컨테이너는 JVM당 하나로 모은다(정적 싱글턴). 클래스마다 띄우면 통합 테스트가 몇 배 느려지고, 훅이 매 커밋마다 전체 스위트를 돌리므로 그 비용이 곧바로 개발 속도에 꽂힌다.
+
 ## [2026-07-10] TEST — ArchUnit의 `..search..`는 서드파티 패키지까지 매치한다 (경계 규칙 오탐)
 - **상황:** ES Java 클라이언트를 IDX에 도입하자 `IDX는_다른_모듈에_의존하지_않는다` 규칙이 갑자기 실패했다.
 - **발견:** ArchUnit의 `..search..` 패턴은 "이름에 `search` 세그먼트가 들어간 **모든** 패키지"를 매치한다. `co.elastic.clients.elasticsearch.core.search`가 걸렸다. 우리 모듈 경계가 아니라 라이브러리 내부 패키지를 잡은 **오탐**이다. `..chat..`, `..idx..` 등도 같은 위험이 있다.
