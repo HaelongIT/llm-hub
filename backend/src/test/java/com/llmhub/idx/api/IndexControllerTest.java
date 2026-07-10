@@ -92,6 +92,41 @@ class IndexControllerTest {
 		assertThat(chunks.저장된).isEmpty();
 	}
 
+	// REQ-IDX 시나리오: 비-ADMIN의 재색인·대상조회 시도 → 거부(403).
+	//
+	// 인가는 경로 패턴으로 걸려야 한다. 엔드포인트가 아직 없어도 마찬가지다 — 핸들러가
+	// 생기는 순간 열리는 구조라면 그것은 인가가 아니다 (SEC-2, S4).
+
+	@Test
+	@DisplayName("USER가 재색인을 시도하면 403이다")
+	void USER는_재색인할_수_없다() {
+		client
+				.post()
+				.uri("/api/index/규정-2026/reindex")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.exchange()
+				.expectStatus()
+				.isForbidden();
+	}
+
+	@Test
+	@DisplayName("USER가 재색인 대상 조회를 시도하면 403이다")
+	void USER는_재색인_대상을_조회할_수_없다() {
+		client
+				.get()
+				.uri("/api/index/stale")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.exchange()
+				.expectStatus()
+				.isForbidden();
+	}
+
+	@Test
+	@DisplayName("인증 없이 재색인을 시도하면 401이다")
+	void 인증이_없으면_재색인도_401이다() {
+		client.post().uri("/api/index/규정-2026/reindex").exchange().expectStatus().isUnauthorized();
+	}
+
 	private WebTestClient.ResponseSpec 업로드(String token) {
 		return client
 				.post()

@@ -72,7 +72,11 @@ public class SecurityConfig {
 								exchange
 										// 색인 API는 ADMIN만 (SEC-2). 컨트롤러가 아니라 여기서 판정한다 —
 										// 권한 검사 누락 가능 경로가 생기지 않도록 구조로 강제한다.
-										.pathMatchers(org.springframework.http.HttpMethod.POST, "/api/index")
+										//
+										// 메서드와 하위 경로를 가리지 않는다. 예전에는 POST /api/index 하나만
+										// 막았고, 그래서 /api/index/{docKey}/reindex 는 인증만 되면 통과했다.
+										// 엔드포인트를 새로 추가하는 순간 조용히 열리는 규칙은 인가가 아니다.
+										.pathMatchers("/api/index", "/api/index/**")
 										.hasRole("ADMIN")
 										.anyExchange()
 										.authenticated())
