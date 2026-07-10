@@ -42,3 +42,25 @@ llmhub:
     # BFF만 외부 노출된다 (SEC-1).
     cors-allowed-origins:
       - ${FRONTEND_ORIGIN:http://localhost:3000}
+
+  idx:
+    # 허용목록 방식. 차단목록이면 새 포맷이 조용히 통과한다 (SEC-4).
+    allowed-uploads:
+      txt: [text/plain]
+      pdf: [application/pdf]
+      hwp: [application/x-hwp, application/haansofthwp]
+      docx: [application/vnd.openxmlformats-officedocument.wordprocessingml.document]
+    max-upload-bytes: ${MAX_UPLOAD_BYTES:52428800}
+    # 경로는 시스템이 생성한다. 사용자 파일명을 경로에 쓰지 않는다 (SEC-4).
+    storage-root: ${FILE_STORAGE_ROOT:./data/documents}
+    chunk-size-tokens: ${CHUNK_SIZE_TOKENS:512}
+    index-name: ${ES_INDEX_NAME:llmhub-chunks}
+    elasticsearch-url: ${ES_URL:http://localhost:9200}
+
+  embedding:
+    # 색인과 검색이 반드시 같은 모델·차원을 써야 한다. 다르면 에러 없이 검색 품질만 붕괴한다 (S8-4).
+    # 바꾸면 재색인이 필요하고, 차원을 바꾸면 새 인덱스가 필요하다 (E9).
+    base-url: ${LITELLM_BASE_URL:http://localhost:4000}
+    api-key: ${LITELLM_API_KEY:changeme}
+    model: ${EMBEDDING_MODEL:placeholder-embedding-model}
+    dimensions: ${EMBEDDING_DIM:1024}

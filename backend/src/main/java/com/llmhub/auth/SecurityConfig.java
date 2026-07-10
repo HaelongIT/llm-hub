@@ -38,7 +38,15 @@ public class SecurityConfig {
 				.csrf(ServerHttpSecurity.CsrfSpec::disable)
 				.httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
 				.formLogin(ServerHttpSecurity.FormLoginSpec::disable)
-				.authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+				.authorizeExchange(
+						exchange ->
+								exchange
+										// 색인 API는 ADMIN만 (SEC-2). 컨트롤러가 아니라 여기서 판정한다 —
+										// 권한 검사 누락 가능 경로가 생기지 않도록 구조로 강제한다.
+										.pathMatchers(org.springframework.http.HttpMethod.POST, "/api/index")
+										.hasRole("ADMIN")
+										.anyExchange()
+										.authenticated())
 				.oauth2ResourceServer(
 						oauth2 ->
 								oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakRealmRoleConverter())))
