@@ -97,6 +97,10 @@ public final class IndexingService {
 						.mapToObj(i -> new EmbeddedChunk(indexed.get(i), vectors.get(i)))
 						.toList());
 
+		// 순서가 전부다. 신버전 색인이 끝난 뒤에만 구버전을 지운다.
+		// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
+		chunkRepository.deleteStaleChunks(document.id(), indexingRunId);
+
 		return new IndexResult(document.id(), indexingRunId, indexed.size());
 	}
 

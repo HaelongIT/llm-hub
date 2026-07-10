@@ -109,6 +109,39 @@ class ElasticsearchChunkRepositoryTest {
 				.contains("연차", "휴가");
 	}
 
+	@Test
+	@DisplayName("구버전 조각만 지우고 신버전은 남긴다")
+	void 구버전_조각만_지운다() {
+		DocumentMetadata 문서 = new DocumentMetadata("doc-replace", "규정.txt", List.of("public"));
+		색인한다(문서, "run-old", new Chunk("구버전 내용", "0"), new Chunk("구버전 둘째", "1"));
+		색인한다(문서, "run-new", new Chunk("신버전 내용", "0"));
+
+		assertThat(repository.findByDocumentId("doc-replace"))
+				.as("삭제 전에는 신·구가 공존한다. 그래서 삭제 순서가 중요하다")
+				.hasSize(3);
+
+		repository.deleteStaleChunks("doc-replace", "run-new");
+
+		assertThat(repository.findByDocumentId("doc-replace"))
+				.singleElement()
+				.satisfies(c -> {
+					assertThat(c.indexingRunId()).isEqualTo("run-new");
+					assertThat(c.text()).isEqualTo("신버전 내용");
+				});
+	}
+
+	@Test
+	@DisplayName("다른 문서의 조각은 건드리지 않는다")
+	void 다른_문서는_건드리지_않는다() {
+		색인한다(new DocumentMetadata("doc-x", "x.txt", List.of("public")), "run-x", new Chunk("x 내용", "0"));
+		색인한다(new DocumentMetadata("doc-y", "y.txt", List.of("public")), "run-y", new Chunk("y 내용", "0"));
+
+		repository.deleteStaleChunks("doc-x", "run-없는실행");
+
+		assertThat(repository.findByDocumentId("doc-x")).isEmpty();
+		assertThat(repository.findByDocumentId("doc-y")).hasSize(1);
+	}
+
 	private static void 색인한다(DocumentMetadata 문서, String 실행ID, Chunk... 조각들) {
 		List<IndexedChunk> indexed =
 				new ChunkAssembler().assemble(문서, List.of(조각들), 임베딩, 실행ID, 색인시각);

@@ -20,6 +20,14 @@ public interface ChunkRepository {
 	/** 조각들을 한 번의 bulk 요청으로 색인한다. */
 	void indexAll(List<EmbeddedChunk> chunks);
 
+	/**
+	 * 해당 문서의 조각 중 이번 색인 실행이 만들지 <b>않은</b> 것을 지운다.
+	 *
+	 * <p>교체 순서는 절대적이다: 신버전 색인 완료 → 그다음 구버전 삭제. 역순이면 색인 도중 장애가 났을 때 문서가 증발한다
+	 * (S17 × S8-3).
+	 */
+	void deleteStaleChunks(String documentId, String currentIndexingRunId);
+
 	/** 해당 문서의 조각을 모두 가져온다. */
 	List<IndexedChunk> findByDocumentId(String documentId);
 }

@@ -85,6 +85,29 @@ public final class ElasticsearchChunkRepository implements ChunkRepository {
 	}
 
 	@Override
+	public void deleteStaleChunks(String documentId, String currentIndexingRunId) {
+		try {
+			client.deleteByQuery(
+					d ->
+							d.index(indexName)
+									.refresh(true)
+									.query(
+											q ->
+													q.bool(
+															b ->
+																	b.must(m -> m.term(t -> t.field("document_id").value(documentId)))
+																			.mustNot(
+																					mn ->
+																							mn.term(
+																									t ->
+																											t.field("indexing_run_id")
+																													.value(currentIndexingRunId))))));
+		} catch (IOException e) {
+			throw new UncheckedIOException("구버전 조각 삭제 실패: " + documentId, e);
+		}
+	}
+
+	@Override
 	public List<IndexedChunk> findByDocumentId(String documentId) {
 		try {
 			return client

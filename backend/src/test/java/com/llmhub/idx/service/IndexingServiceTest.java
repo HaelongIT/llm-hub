@@ -133,6 +133,61 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("같은 doc_key로 재색인하면 구버전 조각이 사라지고 신버전만 남는다")
+	void 재색인하면_구버전_조각이_사라진다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+
+		IndexResult 구버전 = service.index(요청("인사규정-2026", "인사규정.txt", List.of("public")));
+		IndexResult 신버전 = service.index(요청("인사규정-2026", "인사규정.txt", List.of("public")));
+
+		assertThat(신버전.documentId()).as("같은 doc_key는 같은 document다 (S17)").isEqualTo(구버전.documentId());
+		assertThat(신버전.indexingRunId()).isNotEqualTo(구버전.indexingRunId());
+		assertThat(chunks.indexed)
+				.as("구버전 조각이 남으면 같은 내용이 중복 근거로 나온다")
+				.allSatisfy(e -> assertThat(e.chunk().indexingRunId()).isEqualTo(신버전.indexingRunId()));
+	}
+
+	@Test
+	@DisplayName("구버전 삭제는 신버전 색인이 끝난 뒤에 일어난다")
+	void 삭제는_색인_이후에_일어난다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		service.index(요청("규정", "규정.txt", List.of("public")));
+
+		service.index(요청("규정", "규정.txt", List.of("public")));
+
+		assertThat(chunks.순서)
+				.as("삭제가 먼저 일어나면 색인 실패 시 문서가 증발한다 (S17 x S8-3)")
+				.containsSubsequence("indexAll", "deleteStale");
+	}
+
+	@Test
+	@DisplayName("재색인 중 임베딩이 실패하면 구버전 조각이 그대로 검색된다")
+	void 재색인_실패시_구버전이_살아남는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 구버전 = service.index(요청("규정", "규정.txt", List.of("public")));
+		int 구버전_조각수 = chunks.indexed.size();
+
+		service =
+				new IndexingService(
+						new UploadValidator(Map.of("txt", Set.of("text/plain")), 1_000_000),
+						new LocalFileStorage(root),
+						List.of(new TikaDocumentParser()),
+						new TokenChunkingStrategy(20),
+						new FailingEmbeddingClient(설정된_임베딩),
+						chunks,
+						documents,
+						Clock.fixed(고정시각, ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> service.index(요청("규정", "규정.txt", List.of("public"))))
+				.isInstanceOf(IllegalStateException.class);
+
+		assertThat(chunks.indexed)
+				.as("재색인 중 장애가 나도 문서가 증발하면 안 된다 (S17 x S8-3)")
+				.hasSize(구버전_조각수)
+				.allSatisfy(e -> assertThat(e.chunk().indexingRunId()).isEqualTo(구버전.indexingRunId()));
+	}
+
+	@Test
 	@DisplayName("지원하는 파서가 없으면 거부한다")
 	void 파서가_없으면_거부한다(@TempDir Path root) {
 		chunks = new FakeChunkRepository();
@@ -178,13 +233,25 @@ class IndexingServiceTest {
 
 	private static final class FakeChunkRepository implements com.llmhub.idx.index.ChunkRepository {
 		private final java.util.List<EmbeddedChunk> indexed = new java.util.ArrayList<>();
+		/** 호출 순서를 기록한다. S17은 "무엇을 했나"가 아니라 "어떤 순서로 했나"의 문제다. */
+		private final java.util.List<String> 순서 = new java.util.ArrayList<>();
 
 		@Override
 		public void createIndexIfMissing(EmbeddingSpec spec) {}
 
 		@Override
 		public void indexAll(List<EmbeddedChunk> batch) {
+			순서.add("indexAll");
 			indexed.addAll(batch);
+		}
+
+		@Override
+		public void deleteStaleChunks(String documentId, String currentIndexingRunId) {
+			순서.add("deleteStale");
+			indexed.removeIf(
+					e ->
+							e.chunk().documentId().equals(documentId)
+									&& !e.chunk().indexingRunId().equals(currentIndexingRunId));
 		}
 
 		@Override
