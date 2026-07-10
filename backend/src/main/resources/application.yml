@@ -18,6 +18,18 @@ spring:
       ddl-auto: none
     open-in-view: false
 
+  ai:
+    openai:
+      # LiteLLM 게이트웨이의 OpenAI 호환 엔드포인트. 코어는 모델명만 전달하고
+      # 라우팅·페일오버는 게이트웨이 책임이다 (S8-1, E7).
+      base-url: ${LITELLM_BASE_URL:http://localhost:4000}
+      # 스타터가 오디오·이미지 모델까지 자동설정하며 키를 요구한다. 키가 없으면
+      # 애플리케이션 컨텍스트가 아예 뜨지 않는다.
+      api-key: ${LITELLM_API_KEY:changeme}
+      chat:
+        options:
+          model: ${CHAT_MODEL:placeholder-chat-model}
+
   security:
     oauth2:
       resourceserver:

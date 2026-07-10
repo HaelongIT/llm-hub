@@ -57,6 +57,9 @@ dependencies {
 	// spring-ai-core는 없어졌고 1.1.x에서는 spring-ai-commons에 있다.
 	implementation("org.springframework.ai:spring-ai-commons")
 
+	// CHAT — ChatClient. 단일 고정 모델이며 라우팅은 LiteLLM 게이트웨이 책임이다 (S8-1, E7).
+	implementation("org.springframework.ai:spring-ai-starter-model-openai")
+
 	// IDX — 문서 추출. Tika 기본 포맷과 hwp를 각각 다른 어댑터가 맡는다 (S8-2, E8).
 	implementation("org.springframework.ai:spring-ai-tika-document-reader")
 	implementation("kr.dogfoot:hwplib:1.1.10")

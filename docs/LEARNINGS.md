@@ -53,6 +53,14 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] CHAT — Spring AI openai 스타터는 오디오·이미지 모델까지 자동설정한다
+- **상황:** `ChatClient`를 쓰려고 `spring-ai-starter-model-openai`를 추가.
+- **발견:** 스타터가 chat뿐 아니라 **audio speech·transcription·image·moderation 모델까지 자동설정**하고, 각각 `spring.ai.openai.api-key`를 요구한다. 키가 없으면 `openAiAudioSpeechModel` 빈 생성에서 터져 **애플리케이션 컨텍스트가 아예 뜨지 않는다.** 웹 테스트 18개가 한꺼번에 죽었다.
+- **결정/해결:** `spring.ai.openai.base-url`(LiteLLM)과 `api-key`를 설정했다. 코어는 모델명만 전달하고 라우팅은 게이트웨이 책임이다(S8-1, E7).
+- **발견 2:** `ChatModel`은 `call(Prompt)`과 `stream(Prompt)`을 모두 가져 **함수형 인터페이스가 아니다.** 테스트 대역은 람다가 아니라 클래스로 만들어야 한다.
+- **영향:** S8-1, E7, E13, REQ-CHAT
+- **다음 주의:** Spring AI 스타터를 추가할 때마다 전체 스위트를 돌려 컨텍스트 기동을 확인한다. `issuer-uri`와 같은 부류의 함정이다 — 쓰지도 않는 빈이 기동을 막는다.
+
 ## [2026-07-10] AUTH/CORE — `issuer-uri`는 기동을 막고, BlockHound는 파일 I/O를 잡는다
 - **상황:** Keycloak 리소스 서버 설정과 블로킹 격리(S13)를 처음 구현.
 - **발견 1:** `spring.security.oauth2.resourceserver.jwt.issuer-uri`를 쓰면 **빈 생성 시점에 Keycloak으로 네트워크 호출**이 나간다. Keycloak이 떠 있지 않으면 애플리케이션 컨텍스트가 아예 뜨지 않아 모든 `@SpringBootTest`가 죽는다. `jwk-set-uri`는 첫 검증 때 지연 조회하므로 컨텍스트가 뜬다.
