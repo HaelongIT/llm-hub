@@ -53,6 +53,15 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] INFRA — 운영 compose는 base, 개발은 override (REL-5)
+- **상황:** compose 하나로 개발과 운영을 겸하고 있었다. ES 보안 꺼짐, Keycloak dev 모드, 모든 포트 개방. "회사별 설치형과 동일 산출물"(REL-5)이 성립하지 않았다.
+- **결정/해결:** `docker-compose.yml`을 **운영 기준**으로 두고, `docker-compose.override.yml`이 개발용 완화를 얹는다. 고객에게 나가는 산출물이 base 그대로다. 코어·BFF는 `profiles: ["app"]`으로 묶어 개발에서는 소스로 돌린다. 운영에서는 `-f docker-compose.yml`을 **명시해야 한다** — override가 저장소에 있으면 `docker compose up`이 조용히 얹어 보안을 완화한다.
+- **발견 1 (내 설계 버그):** Keycloak을 내부망에만 두면 **로그인이 불가능하다.** 브라우저가 OIDC 리다이렉트로 직접 접근해야 한다. `docs/01`의 SEC-1은 LiteLLM·ES·PostgreSQL만 내부망 전용으로 지정했고 Keycloak은 목록에 없다 — 문서를 정확히 읽었어야 했다.
+- **발견 2:** Keycloak 운영 모드(`start`)는 실제 DB를 요구한다. 내장 H2는 dev 전용이다. 같은 PostgreSQL 인스턴스에 `keycloak` 데이터베이스를 만들어 붙였다(`docker-entrypoint-initdb.d`는 데이터 디렉토리가 비었을 때만 실행된다).
+- **검증:** 별도 프로젝트명·별도 `DATA_ROOT`·다른 포트로 운영 스택을 실제로 띄웠다. ES는 자격증명 없이는 401, `elastic`으로는 200. Keycloak은 PostgreSQL에 테이블 100개를 만들었다. 백엔드는 Flyway 마이그레이션 후 Netty로 떴다. **호스트에 바인딩된 포트는 정확히 둘**(frontend, keycloak). 개발 스택은 건드리지 않았다.
+- **영향:** REL-5, S26/S27, SEC-1
+- **다음 주의:** `docker compose port`는 어느 파일 조합으로 해석했느냐에 따라 다른 답을 준다. 실제 바인딩은 `docker ps`로 본다. 그리고 데이터 볼륨 경로를 변수로 두면(`DATA_ROOT`) 운영 구성을 개발 데이터를 파괴하지 않고 검증할 수 있다.
+
 ## [2026-07-10] CLIENT — `typescript@7`은 JS API가 없다. 타입 검사는 통과하고 빌드가 죽는다
 - **상황:** npm 레지스트리에서 `typescript`의 `latest`가 `7.0.2`라 그것을 사전 승인 목록에 올렸다. `npx tsc --noEmit`가 통과해 문제를 못 봤다.
 - **발견:** TypeScript 7은 **Go 기반 재작성판**이다. `package.json`에 `main` 필드가 없고 `tsc` 바이너리만 제공한다. Next는 `require('typescript')`로 프로그램 API를 쓰므로 `next build`가 `The "id" argument must be of type string. Received undefined`라는 무관해 보이는 메시지로 죽는다. **CLI는 되고 API는 안 되는** 상태라 타입 검사만으로는 절대 드러나지 않는다.

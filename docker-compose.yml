@@ -1,8 +1,19 @@
-# 로컬 개발용 전체 스택 (REL-5 배포 재현성).
-# 회사별 설치형 배포도 같은 산출물을 쓴다 (S26/S27).
+# 운영 기준 스택. 회사별 설치형 배포와 동일한 산출물이다 (S26/S27, REL-5).
 #
-# 주의: 이 파일은 개발용이다. ES 보안 비활성·Keycloak dev 모드는 운영에 쓰지 않는다.
-# 운영에서는 BFF만 외부 노출하고 PG·ES·LiteLLM은 내부망 전용이다 (SEC-1).
+#   운영:  docker compose -f docker-compose.yml up -d
+#   개발:  docker compose up -d          (docker-compose.override.yml이 자동으로 얹힌다)
+#
+# 운영에서 `-f docker-compose.yml`을 명시하는 이유: override 파일이 저장소에 함께 있으면
+# `docker compose up`이 그것을 조용히 얹어 보안을 완화한다.
+#
+# 외부에 노출되는 포트는 둘뿐이다 (SEC-1):
+#   frontend  — 사용자가 쓰는 유일한 진입점
+#   keycloak  — 브라우저가 OIDC 리다이렉트로 직접 접근해야 한다
+# 코어·Elasticsearch·PostgreSQL·LiteLLM은 내부 네트워크에서만 보인다.
+#
+# 리버스 프록시 뒤에 둔다면 두 포트를 프록시가 흡수하고 여기서는 publish를 지운다.
+
+name: llmhub
 
 services:
   postgres:
@@ -11,10 +22,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+      # Keycloak용 데이터베이스를 만든다. 최초 기동 때 한 번만 실행된다.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -26,31 +37,46 @@ services:
       context: ./docker/elasticsearch
     environment:
       discovery.type: single-node
-      # 개발 전용. 운영에서는 보안을 켠다 (SEC-1).
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
-    ports:
-      - "9200:9200"
+      # 운영은 보안을 켠다. 백엔드는 ES_USERNAME/ES_PASSWORD로 인증한다.
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      # 내부 네트워크 전용이므로 TLS를 켜지 않는다. 외부에 노출한다면 반드시 켜야 한다.
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
     volumes:
-      - ./data/elasticsearch:/usr/share/elasticsearch/data
+      - ${DATA_ROOT:-./data}/elasticsearch:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test:
+        ["CMD-SHELL", "curl -sf -u elastic:${ES_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.0
-    command: ["start-dev", "--import-realm"]
+    # dev 모드가 아니다. 내장 H2는 운영에서 지원되지 않는다.
+    command: ["start", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_HTTP_PORT: 8080
-    ports:
-      # 백엔드가 8080을 쓰므로 호스트에서는 8081로 노출한다.
-      - "8081:8080"
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}
+      # 프론트엔드가 리버스 프록시 뒤에 있다면 HTTPS 종료를 그쪽에서 한다.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
     volumes:
       - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    # 브라우저가 로그인 리다이렉트로 직접 접근한다. 내부망에만 두면 로그인이 불가능하다.
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
@@ -58,9 +84,56 @@ services:
     environment:
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-    ports:
-      - "4000:4000"
     volumes:
       - ./docker/litellm/config.yaml:/app/config.yaml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs
+      ES_URL: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${ES_PASSWORD}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIM: ${EMBEDDING_DIM}
+      CHAT_MODEL: ${CHAT_MODEL}
+      CONTEXT_TURNS: ${CONTEXT_TURNS:-5}
+      SEARCH_TOP_K: ${SEARCH_TOP_K:-5}
+      AUDIT_SCOPE: ${AUDIT_SCOPE:-FULL}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      FILE_STORAGE_ROOT: /app/data/documents
+    volumes:
+      # 업로드 원본. 재색인은 여기서 다시 읽는다 (S16).
+      - ${DATA_ROOT:-./data}/documents:/app/data/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      CORE_BASE_URL: http://backend:8080
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      AUTH_TRUST_HOST: "true"
+      KEYCLOAK_URL: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+    # 유일하게 외부로 나가는 포트다 (SEC-1).
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+      - keycloak

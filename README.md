@@ -62,6 +62,27 @@ ollama pull llama3.1    # 채팅
 
 모델을 바꾸면 `.env`의 `EMBEDDING_MODEL`·`EMBEDDING_DIM`과 `config.yaml`을 함께 고친다. 임베딩 모델이 바뀌면 재색인이 필요하고, 차원이 바뀌면 새 ES 인덱스가 필요하다(S8-4, E9).
 
+## 운영 배포 (회사별 설치형)
+
+`docker-compose.yml`이 **운영 기준**이다. 고객에게 나가는 산출물이 이 파일 그대로다(S26/S27, REL-5).
+
+```bash
+docker compose -f docker-compose.yml --profile app up -d --build
+```
+
+`-f docker-compose.yml`을 **반드시 명시한다.** 저장소에 함께 있는 `docker-compose.override.yml`은 개발용 완화(포트 개방, ES 보안 해제, Keycloak dev 모드)를 담고 있어서, 그냥 `docker compose up`을 하면 조용히 얹힌다.
+
+| | 개발 (`docker compose up`) | 운영 (`-f docker-compose.yml --profile app`) |
+|---|---|---|
+| 코어·BFF | 소스에서 실행 | 컨테이너 이미지 |
+| 노출 포트 | ES·PG·LiteLLM·Keycloak 전부 | **frontend, keycloak 둘뿐** |
+| Elasticsearch | 보안 꺼짐 | 보안 켜짐 (`ES_USERNAME`/`ES_PASSWORD`) |
+| Keycloak | `start-dev` (내장 H2) | `start` + PostgreSQL |
+
+Keycloak은 브라우저가 로그인 리다이렉트로 직접 접근해야 하므로 노출한다. 코어·Elasticsearch·PostgreSQL·LiteLLM은 내부 네트워크에서만 보인다(SEC-1). 리버스 프록시 뒤에 둔다면 두 포트를 프록시가 흡수하고 compose의 `ports`를 지운다.
+
+첫 기동 때 `docker/postgres/init/`가 Keycloak용 데이터베이스를 만든다. 데이터 디렉토리가 비어 있을 때만 실행되므로, 기존 볼륨에 얹으려면 `create database keycloak;`을 직접 실행한다.
+
 훅은 커밋 전에 테스트를 돌리고, 테스트 무력화 토큰과 비밀정보, 읽기 전용 문서 변경을 차단한다. 사람이 승인한 문서 변경은 `LLMHUB_DOC_EDIT_APPROVED=1 git commit ...`으로 통과시킨다.
 
 ## 요구사항
