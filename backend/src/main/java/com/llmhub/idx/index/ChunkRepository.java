@@ -2,6 +2,7 @@ package com.llmhub.idx.index;
 
 import com.llmhub.common.embedding.EmbeddingSpec;
 import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * 조각 저장소 (ES).
@@ -17,6 +18,13 @@ public interface ChunkRepository {
 	 * 필요하다 (docs/03).
 	 */
 	void createIndexIfMissing(EmbeddingSpec spec);
+
+	/**
+	 * 기존 인덱스가 쓰는 {@code dense_vector} 차원. 인덱스가 아직 없으면 비어 있다.
+	 *
+	 * <p>설정 차원과 다르면 색인이 실패한다. 임베딩을 시작하기 전에 그것을 알아내는 데 쓴다 (S8-3).
+	 */
+	OptionalInt indexedDimensions();
 
 	/** 조각들을 한 번의 bulk 요청으로 색인한다. */
 	void indexAll(List<EmbeddedChunk> chunks);

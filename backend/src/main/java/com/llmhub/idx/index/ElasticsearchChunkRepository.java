@@ -4,11 +4,14 @@ import com.llmhub.common.embedding.EmbeddingSpec;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorSimilarity;
+import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.indices.get_mapping.IndexMappingRecord;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * 조각을 Elasticsearch에 저장한다.
@@ -62,6 +65,26 @@ public final class ElasticsearchChunkRepository implements ChunkRepository {
 																	.properties("indexing_run_id", p -> p.keyword(k -> k))));
 		} catch (IOException e) {
 			throw new UncheckedIOException("인덱스 생성 실패: " + indexName, e);
+		}
+	}
+
+	@Override
+	public OptionalInt indexedDimensions() {
+		try {
+			if (!client.indices().exists(e -> e.index(indexName)).value()) {
+				return OptionalInt.empty();
+			}
+			IndexMappingRecord mapping = client.indices().getMapping(g -> g.index(indexName)).get(indexName);
+			if (mapping == null) {
+				return OptionalInt.empty();
+			}
+			Property embedding = mapping.mappings().properties().get("embedding");
+			if (embedding == null || !embedding.isDenseVector() || embedding.denseVector().dims() == null) {
+				return OptionalInt.empty();
+			}
+			return OptionalInt.of(embedding.denseVector().dims());
+		} catch (IOException e) {
+			throw new UncheckedIOException("인덱스 매핑 조회 실패: " + indexName, e);
 		}
 	}
 

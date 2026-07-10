@@ -62,6 +62,20 @@ public class PostgresDocumentRepository implements DocumentRepository {
 		return toRecord(saved);
 	}
 
+	@Override
+	@Transactional(readOnly = true)
+	public java.util.Optional<DocumentRecord> findByDocKey(String docKey) {
+		return jpaRepository.findByDocKey(docKey).map(PostgresDocumentRepository::toRecord);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<DocumentRecord> findStale(String currentEmbeddingModel) {
+		return jpaRepository.findByEmbeddingModelNot(currentEmbeddingModel).stream()
+				.map(PostgresDocumentRepository::toRecord)
+				.toList();
+	}
+
 	private static DocumentRecord toRecord(DocumentEntity entity) {
 		return new DocumentRecord(
 				entity.getId().toString(),

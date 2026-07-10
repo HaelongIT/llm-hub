@@ -1,5 +1,6 @@
 package com.llmhub.idx.persistence;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,4 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface DocumentJpaRepository extends JpaRepository<DocumentEntity, UUID> {
 
 	Optional<DocumentEntity> findByDocKey(String docKey);
+
+	/** 재색인 대상. 메타의 모델명으로 식별한다 (E9). */
+	List<DocumentEntity> findByEmbeddingModelNot(String embeddingModel);
 }

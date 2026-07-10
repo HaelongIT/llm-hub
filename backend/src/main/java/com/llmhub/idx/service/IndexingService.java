@@ -16,7 +16,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,31 +67,80 @@ public final class IndexingService {
 	public IndexResult index(IndexRequest request) {
 		validator.validate(request.filename(), request.contentType(), request.content().length);
 
-		String extension = extensionOf(request.filename());
 		// 문서 본문은 로그에 남기지 않는다 (SEC-3). 식별자와 크기만 남긴다.
-		log.info("색인 시작 docKey={} ext={} bytes={}", request.docKey(), extension, request.content().length);
+		log.info(
+				"색인 시작 docKey={} ext={} bytes={}",
+				request.docKey(),
+				extensionOf(request.filename()),
+				request.content().length);
 
-		DocumentParser parser = parserFor(extension);
-		String text = parser.extractText(request.content(), request.filename());
+		// 원본 보관은 임베딩이 끝난 뒤에 한다. 임베딩이 실패하면 고아 파일이 남지 않는다.
+		return run(
+				request.docKey(),
+				request.filename(),
+				request.accessTags(),
+				request.content(),
+				() -> fileStorage.store(request.filename(), request.content()));
+	}
+
+	/**
+	 * 보관된 원본에서 다시 색인한다 (S16). 파일을 다시 받지 않는다.
+	 *
+	 * <p>업로드 검증을 하지 않는다. 이 바이트는 업로드 시점에 이미 허용목록을 통과했고, MIME 타입은 저장되어 있지 않다.
+	 *
+	 * <p>접근 태그는 요청이 아니라 <b>document의 현재 값</b>을 쓴다. document가 태그의 유일한 원천이다 (S18).
+	 */
+	public IndexResult reindex(String docKey) {
+		DocumentRecord document =
+				documentRepository.findByDocKey(docKey).orElseThrow(() -> new DocumentNotFoundException(docKey));
+
+		byte[] content = fileStorage.read(document.storageKey());
+		log.info("재색인 시작 docKey={} documentId={} bytes={}", docKey, document.id(), content.length);
+
+		return run(docKey, document.filename(), document.accessTags(), content, document::storageKey);
+	}
+
+	/** 현재 설정과 다른 모델로 색인된 문서들. 재색인 대상이다 (E9). */
+	public List<StaleDocument> staleDocuments() {
+		return documentRepository.findStale(embeddingClient.spec().model()).stream()
+				.map(d -> new StaleDocument(d.docKey(), d.filename(), d.embeddingModel()))
+				.toList();
+	}
+
+	/**
+	 * 업로드와 재색인이 공유하는 파이프라인. 진입 경로가 달라도 같은 서비스를 지난다 (S1, E1).
+	 *
+	 * @param storageKey 원본의 저장 키. 업로드는 지금 저장하고, 재색인은 보관된 것을 그대로 쓴다. 임베딩이 끝난 뒤에야
+	 *     평가된다.
+	 */
+	private IndexResult run(
+			String docKey,
+			String filename,
+			List<String> accessTags,
+			byte[] content,
+			Supplier<String> storageKey) {
+
+		DocumentParser parser = parserFor(extensionOf(filename));
+		String text = parser.extractText(content, filename);
 		List<Chunk> chunks = chunkingStrategy.chunk(text);
 		if (chunks.isEmpty()) {
-			throw new IllegalStateException("색인할 조각이 없다: " + request.filename());
+			throw new IllegalStateException("색인할 조각이 없다: " + filename);
 		}
-		log.debug("추출·청킹 완료 docKey={} textChars={} chunks={}", request.docKey(), text.length(), chunks.size());
+		log.debug("추출·청킹 완료 docKey={} textChars={} chunks={}", docKey, text.length(), chunks.size());
 
 		EmbeddingSpec spec = embeddingClient.spec();
+		requireCompatibleDimensions(spec);
+
 		// ES에 쓰기 전에 임베딩을 전량 끝낸다. 여기서 실패하면 아무것도 쓰이지 않는다.
 		List<float[]> vectors = embeddingClient.embed(chunks.stream().map(Chunk::text).toList());
 		if (vectors.size() != chunks.size()) {
 			throw new IllegalStateException(
 					"임베딩 개수가 조각 개수와 다르다: %d != %d".formatted(vectors.size(), chunks.size()));
 		}
-		log.debug("임베딩 완료 docKey={} model={} vectors={}", request.docKey(), spec.model(), vectors.size());
+		log.debug("임베딩 완료 docKey={} model={} vectors={}", docKey, spec.model(), vectors.size());
 
-		String storageKey = fileStorage.store(request.filename(), request.content());
 		DocumentRecord document =
-				documentRepository.upsert(
-						request.docKey(), request.filename(), storageKey, request.accessTags(), spec.model());
+				documentRepository.upsert(docKey, filename, storageKey.get(), accessTags, spec.model());
 
 		String indexingRunId = UUID.randomUUID().toString();
 		List<IndexedChunk> indexed =
@@ -112,11 +163,22 @@ public final class IndexingService {
 
 		log.info(
 				"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",
-				request.docKey(),
+				docKey,
 				document.id(),
 				indexingRunId,
 				indexed.size());
 		return new IndexResult(document.id(), indexingRunId, indexed.size());
+	}
+
+	/**
+	 * 임베딩을 시작하기 <b>전에</b> 차원을 확인한다. {@code dense_vector} 차원은 인덱스 생성 시 고정되므로, 다르면 어차피
+	 * 색인이 실패한다. 미리 멈추면 임베딩 비용을 쓰지 않고 구버전 조각도 건드리지 않는다 (S8-3).
+	 */
+	private void requireCompatibleDimensions(EmbeddingSpec spec) {
+		OptionalInt indexed = chunkRepository.indexedDimensions();
+		if (indexed.isPresent() && indexed.getAsInt() != spec.dimensions()) {
+			throw new EmbeddingDimensionMismatchException(indexed.getAsInt(), spec.dimensions());
+		}
 	}
 
 	private DocumentParser parserFor(String extension) {

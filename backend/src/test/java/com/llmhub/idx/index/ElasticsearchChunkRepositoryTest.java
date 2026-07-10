@@ -115,6 +115,25 @@ class ElasticsearchChunkRepositoryTest {
 		assertThat(repository.findByDocumentId("doc-y")).hasSize(1);
 	}
 
+	@Test
+	@DisplayName("기존 인덱스의 dense_vector 차원을 읽는다")
+	void 인덱스의_차원을_읽는다() {
+		// dense_vector 차원은 인덱스 생성 시 고정된다. 재색인 전에 설정 차원과 비교해야
+		// 임베딩 비용을 쓰기 전에 멈출 수 있다 (S8-3, docs/03).
+		assertThat(repository.indexedDimensions()).hasValue(임베딩.dimensions());
+	}
+
+	@Test
+	@DisplayName("인덱스가 아직 없으면 차원도 없다")
+	void 인덱스가_없으면_차원이_없다() {
+		ElasticsearchChunkRepository 없는_인덱스 =
+				new ElasticsearchChunkRepository(client, "llmhub-chunks-존재하지-않음");
+
+		assertThat(없는_인덱스.indexedDimensions())
+				.as("첫 색인은 인덱스를 만들면서 시작한다. 비교할 대상이 없다")
+				.isEmpty();
+	}
+
 	private static void 색인한다(DocumentMetadata 문서, String 실행ID, Chunk... 조각들) {
 		List<IndexedChunk> indexed =
 				new ChunkAssembler().assemble(문서, List.of(조각들), 임베딩, 실행ID, 색인시각);

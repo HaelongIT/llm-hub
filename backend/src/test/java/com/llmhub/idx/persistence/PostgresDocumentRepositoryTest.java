@@ -71,6 +71,30 @@ class PostgresDocumentRepositoryTest {
 	}
 
 	@Test
+	@DisplayName("doc_key로 문서를 찾는다 — 재색인은 이 레코드의 원본을 다시 읽는다")
+	void doc_key로_찾는다() {
+		repository.upsert("조회-대상", "원본.pdf", "key-원본", List.of("public"), "bge-m3");
+
+		assertThat(repository.findByDocKey("조회-대상"))
+				.get()
+				.satisfies(d -> assertThat(d.storageKey()).isEqualTo("key-원본"));
+		assertThat(repository.findByDocKey("없는-키")).isEmpty();
+	}
+
+	@Test
+	@DisplayName("재색인 대상은 현재 설정과 다른 모델로 색인된 문서다")
+	void 재색인_대상을_찾는다() {
+		// 이 테스트 클래스는 DB를 공유한다. 다른 테스트의 문서와 섞이지 않도록 고유한 모델명을 쓴다.
+		repository.upsert("옛-모델-문서", "a.pdf", "key-a", List.of("public"), "모델-2024");
+		repository.upsert("현-모델-문서", "b.pdf", "key-b", List.of("public"), "모델-2026");
+
+		List<String> 대상 = repository.findStale("모델-2026").stream().map(DocumentRecord::docKey).toList();
+
+		assertThat(대상).as("메타의 모델명으로 재색인 대상을 식별한다 (E9)").contains("옛-모델-문서");
+		assertThat(대상).as("현재 모델로 색인된 문서는 재색인할 필요가 없다").doesNotContain("현-모델-문서");
+	}
+
+	@Test
 	@DisplayName("교체 시각이 갱신된다")
 	void 교체_시각이_갱신된다() throws InterruptedException {
 		repository.upsert("시각-추적", "v1.pdf", "key-a", List.of("public"), "bge-m3");

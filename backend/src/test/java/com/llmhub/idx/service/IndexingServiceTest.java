@@ -211,6 +211,158 @@ class IndexingServiceTest {
 				.hasMessageContaining("hwp");
 	}
 
+	// ─── 재색인 (S16, E9) ───
+	//
+	// 재업로드와 다르다. 파일을 다시 받지 않고 보관된 원본을 다시 읽는다.
+
+	@Test
+	@DisplayName("재색인은 파일 없이 doc_key만으로 보관된 원본을 다시 읽는다")
+	void 재색인은_원본에서_읽는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 구버전 = service.index(요청("규정", "규정.txt", List.of("public")));
+		int 구버전_조각수 = chunks.indexed.size();
+
+		IndexResult 신버전 = service.reindex("규정");
+
+		assertThat(신버전.documentId()).as("재색인은 같은 document다").isEqualTo(구버전.documentId());
+		assertThat(신버전.indexingRunId()).isNotEqualTo(구버전.indexingRunId());
+		assertThat(신버전.chunkCount()).isEqualTo(구버전_조각수);
+		assertThat(chunks.indexed)
+				.as("구버전 조각이 남으면 같은 내용이 중복 근거로 나온다 (S17)")
+				.hasSize(구버전_조각수)
+				.allSatisfy(e -> assertThat(e.chunk().indexingRunId()).isEqualTo(신버전.indexingRunId()));
+	}
+
+	@Test
+	@DisplayName("재색인은 원본을 새로 저장하지 않는다")
+	void 재색인은_원본을_다시_쓰지_않는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 결과 = service.index(요청("규정", "규정.txt", List.of("public")));
+		String 원래_저장키 = documents.byId.get(결과.documentId()).storageKey();
+
+		service.reindex("규정");
+
+		assertThat(documents.byId.get(결과.documentId()).storageKey())
+				.as("보관된 원본을 그대로 쓴다. 새로 쓰면 파일이 계속 늘어난다 (S16)")
+				.isEqualTo(원래_저장키);
+	}
+
+	@Test
+	@DisplayName("재색인 시 접근 태그는 document의 현재 값을 쓴다")
+	void 재색인은_document의_태그를_쓴다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 결과 = service.index(요청("규정", "규정.txt", List.of("public")));
+
+		// 문서의 접근 태그가 바뀌었다. document가 태그의 유일한 원천이다 (S18).
+		DocumentRecord 문서 = documents.byId.get(결과.documentId());
+		documents.upsert(
+				"규정", 문서.filename(), 문서.storageKey(), List.of("public", "restricted"), 문서.embeddingModel());
+
+		service.reindex("규정");
+
+		assertThat(chunks.indexed)
+				.as("조각의 태그는 document에서 복사된 사본이다. 재색인 요청이 태그를 바꾸지 못한다 (S18)")
+				.allSatisfy(e -> assertThat(e.chunk().accessTags()).containsExactlyInAnyOrder("public", "restricted"));
+	}
+
+	@Test
+	@DisplayName("재색인 후 document의 임베딩 모델이 현재 설정값으로 갱신된다")
+	void 재색인하면_임베딩_모델이_갱신된다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(new EmbeddingSpec("옛-모델", 4)));
+		IndexResult 결과 = service.index(요청("규정", "규정.txt", List.of("public")));
+		assertThat(documents.byId.get(결과.documentId()).embeddingModel()).isEqualTo("옛-모델");
+
+		service = 같은_저장소로_다시_만든다(root, new FakeEmbeddingClient(new EmbeddingSpec("새-모델", 4)));
+		service.reindex("규정");
+
+		assertThat(documents.byId.get(결과.documentId()).embeddingModel())
+				.as("색인/검색 임베딩 모델이 어긋나면 에러 없이 검색 품질만 붕괴한다 (S8-4)")
+				.isEqualTo("새-모델");
+		assertThat(chunks.indexed).allSatisfy(e -> assertThat(e.chunk().embeddingModel()).isEqualTo("새-모델"));
+	}
+
+	@Test
+	@DisplayName("재색인 중 임베딩이 실패하면 구버전 조각이 그대로 검색된다")
+	void 재색인_중_임베딩_실패시_구버전이_살아남는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 구버전 = service.index(요청("규정", "규정.txt", List.of("public")));
+		int 구버전_조각수 = chunks.indexed.size();
+
+		service = 같은_저장소로_다시_만든다(root, new FailingEmbeddingClient(설정된_임베딩));
+		chunks.순서.clear(); // 최초 색인이 남긴 흔적을 지운다. 여기서부터가 재색인이다.
+
+		assertThatThrownBy(() -> service.reindex("규정")).isInstanceOf(IllegalStateException.class);
+
+		assertThat(chunks.indexed)
+				.as("재색인 중 장애가 나도 문서가 증발하면 안 된다 (S17 x S8-3)")
+				.hasSize(구버전_조각수)
+				.allSatisfy(e -> assertThat(e.chunk().indexingRunId()).isEqualTo(구버전.indexingRunId()));
+		assertThat(chunks.순서).as("실패한 재색인은 ES를 건드리지 않는다. 삭제는 신버전 색인 성공 뒤에만 일어난다").isEmpty();
+	}
+
+	@Test
+	@DisplayName("임베딩 차원이 기존 인덱스와 다르면 임베딩을 시작하지도 않고 거부한다")
+	void 차원이_다르면_임베딩_전에_거부한다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		service.index(요청("규정", "규정.txt", List.of("public")));
+		int 구버전_조각수 = chunks.indexed.size();
+
+		// 기존 ES 인덱스는 4차원으로 만들어져 있다. dense_vector 차원은 인덱스 생성 시 고정된다.
+		chunks.인덱스_차원 = 4;
+		세는_임베딩 세는_임베딩 = new 세는_임베딩(new EmbeddingSpec("새-모델", 8));
+		service = 같은_저장소로_다시_만든다(root, 세는_임베딩);
+
+		assertThatThrownBy(() -> service.reindex("규정"))
+				.isInstanceOf(EmbeddingDimensionMismatchException.class)
+				.hasMessageContaining("8")
+				.hasMessageContaining("4");
+
+		assertThat(세는_임베딩.호출횟수)
+				.as("임베딩은 비싸다. 실패가 확정된 재색인에 비용을 쓰지 않는다")
+				.isZero();
+		assertThat(chunks.indexed).as("구버전 조각은 그대로 남는다 (S8-3)").hasSize(구버전_조각수);
+	}
+
+	@Test
+	@DisplayName("없는 doc_key로 재색인하면 DocumentNotFoundException이다")
+	void 없는_문서는_재색인할_수_없다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+
+		assertThatThrownBy(() -> service.reindex("없는-키"))
+				.isInstanceOf(DocumentNotFoundException.class)
+				.hasMessageContaining("없는-키");
+	}
+
+	@Test
+	@DisplayName("재색인 대상은 현재 설정과 다른 모델로 색인된 문서다")
+	void 재색인_대상을_식별한다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(new EmbeddingSpec("옛-모델", 4)));
+		service.index(요청("옛문서", "옛문서.txt", List.of("public")));
+
+		service = 같은_저장소로_다시_만든다(root, new FakeEmbeddingClient(new EmbeddingSpec("새-모델", 4)));
+		service.index(요청("새문서", "새문서.txt", List.of("public")));
+
+		assertThat(service.staleDocuments())
+				.as("메타의 모델명으로 재색인 대상을 식별한다 (E9)")
+				.singleElement()
+				.satisfies(d -> {
+					assertThat(d.docKey()).isEqualTo("옛문서");
+					assertThat(d.embeddingModel()).isEqualTo("옛-모델");
+				});
+	}
+
+	private IndexingService 같은_저장소로_다시_만든다(Path root, EmbeddingClient embeddingClient) {
+		return new IndexingService(
+				new UploadValidator(Map.of("txt", Set.of("text/plain")), 1_000_000),
+				new LocalFileStorage(root),
+				List.of(new TikaDocumentParser()),
+				new TokenChunkingStrategy(20),
+				embeddingClient,
+				chunks,
+				documents,
+				Clock.fixed(고정시각, ZoneOffset.UTC));
+	}
+
 	private static IndexRequest 요청(String docKey, String filename, List<String> tags) {
 		return new IndexRequest(docKey, filename, "text/plain", 본문, tags);
 	}
@@ -231,10 +383,38 @@ class IndexingServiceTest {
 		}
 	}
 
+	/** 임베딩이 실제로 불렸는지 센다. "거부했다"와 "돈을 쓰고 거부했다"는 다르다. */
+	private static final class 세는_임베딩 implements EmbeddingClient {
+		private final EmbeddingSpec spec;
+		private int 호출횟수;
+
+		private 세는_임베딩(EmbeddingSpec spec) {
+			this.spec = spec;
+		}
+
+		@Override
+		public EmbeddingSpec spec() {
+			return spec;
+		}
+
+		@Override
+		public List<float[]> embed(List<String> texts) {
+			호출횟수++;
+			return texts.stream().map(t -> new float[spec.dimensions()]).toList();
+		}
+	}
+
 	private static final class FakeChunkRepository implements com.llmhub.idx.index.ChunkRepository {
 		private final java.util.List<EmbeddedChunk> indexed = new java.util.ArrayList<>();
 		/** 호출 순서를 기록한다. S17은 "무엇을 했나"가 아니라 "어떤 순서로 했나"의 문제다. */
 		private final java.util.List<String> 순서 = new java.util.ArrayList<>();
+		/** null이면 인덱스가 아직 없다는 뜻이다. */
+		private Integer 인덱스_차원;
+
+		@Override
+		public java.util.OptionalInt indexedDimensions() {
+			return 인덱스_차원 == null ? java.util.OptionalInt.empty() : java.util.OptionalInt.of(인덱스_차원);
+		}
 
 		@Override
 		public void createIndexIfMissing(EmbeddingSpec spec) {}
@@ -272,6 +452,16 @@ class IndexingServiceTest {
 					new DocumentRecord(id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel);
 			byId.put(id, record);
 			return record;
+		}
+
+		@Override
+		public java.util.Optional<DocumentRecord> findByDocKey(String docKey) {
+			return java.util.Optional.ofNullable(idByDocKey.get(docKey)).map(byId::get);
+		}
+
+		@Override
+		public List<DocumentRecord> findStale(String currentEmbeddingModel) {
+			return byId.values().stream().filter(d -> !d.embeddingModel().equals(currentEmbeddingModel)).toList();
 		}
 	}
 }

@@ -212,6 +212,11 @@ class IndexControllerTest {
 		final List<String> 실행_스레드 = new CopyOnWriteArrayList<>();
 
 		@Override
+		public java.util.OptionalInt indexedDimensions() {
+			return java.util.OptionalInt.empty();
+		}
+
+		@Override
 		public void createIndexIfMissing(EmbeddingSpec spec) {}
 
 		@Override
