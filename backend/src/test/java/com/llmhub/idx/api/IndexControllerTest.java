@@ -91,6 +91,25 @@ class IndexControllerTest {
 	}
 
 	@Test
+	@DisplayName("빈 파일은 400이고 아무것도 색인되지 않는다")
+	void 빈_파일은_400이다() {
+		// 0바이트 업로드를 클라이언트가 어떻게 인코딩하는지는 우리가 통제할 수 없다. curl은 파트를
+		// 아예 빼고(프레임워크가 400), 여기서는 길이 0 버퍼가 도착해 UploadValidator가 거부한다.
+		// 둘 다 400이고 색인은 일어나지 않는다 (SEC-4).
+		client
+				.post()
+				.uri("/api/index")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + ADMIN_토큰)
+				.contentType(MediaType.MULTIPART_FORM_DATA)
+				.bodyValue(빈_파일_멀티파트())
+				.exchange()
+				.expectStatus()
+				.isBadRequest();
+
+		assertThat(chunks.저장된).isEmpty();
+	}
+
+	@Test
 	@DisplayName("인증 없이 색인을 시도하면 401이다")
 	void 인증이_없으면_401이다() {
 		client
@@ -234,6 +253,21 @@ class IndexControllerTest {
 
 	private static org.springframework.util.MultiValueMap<String, org.springframework.http.HttpEntity<?>> 멀티파트() {
 		return 멀티파트("규정.txt", MediaType.TEXT_PLAIN);
+	}
+
+	private static org.springframework.util.MultiValueMap<String, org.springframework.http.HttpEntity<?>> 빈_파일_멀티파트() {
+		MultipartBodyBuilder builder = new MultipartBodyBuilder();
+		builder
+				.part("file", new ByteArrayResource(new byte[0]) {
+					@Override
+					public String getFilename() {
+						return "빈파일.txt";
+					}
+				})
+				.contentType(MediaType.TEXT_PLAIN);
+		builder.part("docKey", "빈-문서");
+		builder.part("accessTags", "public");
+		return builder.build();
 	}
 
 	private static org.springframework.util.MultiValueMap<String, org.springframework.http.HttpEntity<?>> 멀티파트(

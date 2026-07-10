@@ -57,6 +57,10 @@ public class IndexController {
 
 		return DataBufferUtils.join(file.content())
 				.map(IndexController::toBytes)
+				// 내용이 한 조각도 오지 않으면 join()은 빈 Mono다. 그대로 두면 flatMap이 통째로 건너뛰어지고
+				// 핸들러가 아무 값도 내지 않는다 — 색인은 없었는데 응답은 200이다. 빈 바이트로 내려보내
+				// 검증기가 거부하게 한다 (SEC-4).
+				.defaultIfEmpty(new byte[0])
 				.flatMap(
 						content ->
 								Blocking.call(
