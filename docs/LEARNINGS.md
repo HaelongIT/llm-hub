@@ -197,3 +197,33 @@
 - **결정/해결:** ArchUnit은 빈 규칙 허용. 블로킹 격리 테스트(S13)는 BlockHound에만 의존하지 않고 **실제 실행 스레드 이름이 `boundedElastic-`으로 시작하는지 단언**하는 테스트를 함께 둔다.
 - **영향:** MAINT-1, MAINT-2, S13, docs/05
 - **다음 주의:** `failOnEmptyShould=false` 때문에 패키지명을 오타내면 규칙이 조용히 통과한다. 모듈에 클래스가 들어오면 규칙이 실제로 동작하기 시작한다. 블로킹 격리는 `subscribeOn(boundedElastic())`이며 `publishOn`이 아니다(`publishOn`은 하위 연산자만 옮겨 블로킹 소스가 이벤트 루프에 남는다).
+
+## [2026-07-10] OPS — 관리 포트를 분리해도 보안 필터체인은 따라온다 (헬스체크가 401)
+- **상황:** REL-5 헬스체크. SEC-1("모든 API는 인증 필요")을 지키면서 오케스트레이터가 자격증명 없이 기동을 확인해야 한다. `management.server.port`로 별도 포트에 두면 액추에이터가 보안 밖에 놓인다고 **가정**했다.
+- **발견:** 아니다. WebFlux에서 관리 자식 컨텍스트는 부모의 `WebFilter`(= `WebFilterChainProxy`)를 그대로 쓴다. 실측: 관리 포트 응답에 `WWW-Authenticate: Bearer`와 우리가 붙인 `X-Trace-Id`가 그대로 있었다. 즉 **포트만 나눠서는 헬스가 열리지 않는다.** 서블릿 스택의 `ManagementWebSecurityAutoConfiguration` 동작을 리액티브에 그대로 적용하면 틀린다.
+- **결정/해결:** `HIGHEST_PRECEDENCE` 체인을 하나 더 두고 **`securityMatcher`를 "관리 포트 AND /actuator/health"로** 좁혀 `permitAll`했다(`ManagementPortMatcher`). 포트 판정은 `exchange.getRequest().getLocalAddress()`와 `local.management.port`를 비교한다. 경로만으로 열면 애플리케이션 포트의 헬스까지 열려 SEC-1이 깨진다. 관리 포트가 없거나 앱 포트와 같으면 매치하지 않는다(설정 실수로 노출되는 경로 차단).
+- **영향:** SEC-1, REL-5, `auth/SecurityConfig`, `docker-compose.yml`
+- **다음 주의:** 보안 경계에 대한 프레임워크 동작은 **문서가 아니라 응답으로 확인한다.** 이 가정은 테스트를 먼저 썼기 때문에 잡혔다 — "관리 포트 200, 앱 포트 401"을 둘 다 단언한 덕분이다. 한쪽만 단언했으면 통과했을 것이다. 또한 `SecurityWebFilterChain` 빈이 둘이 되면 `@Autowired SecurityWebFilterChain`이 깨진다(기존 테스트 수정 필요).
+
+## [2026-07-10] OBS — Reactor Context의 추적 ID를 MDC로 옮기는 지점은 블로킹 경계 한 곳이다
+- **상황:** REL-3. 모든 요청에 `trace_id`를 발급해 로그·감사에 연결해야 한다. `micrometer-context-propagation` + 전역 훅으로 MDC를 리액티브 전반에 전파하는 방법이 있다.
+- **발견:** 그럴 필요가 없다. 색인·검색·이력·감사 저장은 **전부 `Blocking.call/run`을 지난다.** 거기서 `Mono.deferContextual`로 Context의 추적 ID를 꺼내 작업 스레드의 MDC에 심고 `finally`로 지우면, 하위 계층이 `traceId`를 인자로 받아 끌고 다니지 않아도 로그가 요청과 이어진다. 새 의존성도, 이벤트 루프에 스레드 로컬을 심는 일도 없다. 로그 패턴은 `logging.pattern.correlation: "[%X{traceId:-}] "` 한 줄이면 되고 `logback-spring.xml`이 필요 없다.
+- **결정/해결:** `TraceId`(Reactor Context 키) + `TraceIdWebFilter`(체인 맨 앞, `SecurityWebFiltersOrder.FIRST`) + `Blocking`의 MDC 주입. 리액티브 스레드에서 도는 `ChatService`는 MDC가 비므로 `traceId`를 인자로 직접 남긴다.
+- **주의 1 — 인바운드 헤더를 신뢰하지 않는다.** 클라이언트가 보낸 `X-Trace-Id`를 그대로 쓰면 감사 기록의 상관관계 키를 요청자가 고를 수 있다. 항상 서버가 발급한다.
+- **주의 2 — 스레드풀은 스레드를 재사용한다.** 추적 ID가 없는 작업이 앞선 요청의 ID를 물려받지 않도록, 심지 않을 때는 `MDC.remove`한다.
+- **영향:** REL-3, SEC-3, `common/{TraceId,TraceIdWebFilter,Blocking}`, `chat/api/ChatController`
+- **다음 주의:** 컨트롤러가 `UUID.randomUUID()`로 추적 ID를 따로 만들면 응답 헤더의 값과 감사 기록의 값이 갈린다. 발급처는 하나여야 한다. 로그에는 질문·답변·조각 **원문을 남기지 않는다**(SEC-3) — 길이·개수·식별자만 남긴다. 전문은 감사 로그가 맡는다(S5, E5).
+
+## [2026-07-10] TEST — Testcontainers ES: "HTTP가 응답한다"와 "elastic 사용자가 준비됐다"는 다르다
+- **상황:** `ElasticsearchAuthTest`가 간헐적으로 `unable to authenticate user [elastic]`로 실패했다. 재실행하면 통과.
+- **발견:** 대기 전략이 `forStatusCodeMatching(200 or 401)`이었다. 보안이 켜진 ES는 HTTP 계층이 먼저 401을 돌려주기 시작하고, `elastic` 사용자를 담는 **네이티브 렘은 그 뒤에 초기화**된다. 그 틈에 인증하면 실패한다. 401을 "떴다"의 신호로 쓴 것이 원인이다.
+- **결정/해결:** `Wait.forHttp(...).withBasicCredentials("elastic", 비밀번호).forStatusCode(200)` — "응답한다"가 아니라 **"자격증명이 실제로 통한다"**를 기다린다.
+- **영향:** `ElasticsearchAuthTest`
+- **다음 주의:** 컨테이너 대기 조건은 **테스트가 실제로 의존하는 상태**여야 한다. 포트가 열렸다·응답이 왔다는 준비 완료가 아니다. 간헐 실패는 커밋 훅(전체 테스트 실행)을 무작위로 막고, "red를 무시해도 된다"는 습관을 만든다.
+
+## [2026-07-10] OPS — 컨테이너 헬스체크의 `localhost`는 ::1로 풀린다 (서버는 IPv4에만 바인딩)
+- **상황:** `frontend` 헬스체크를 `wget -q -O - http://localhost:3000/api/health`로 넣었다. 백엔드도 `curl -sf http://localhost:9090/...`.
+- **발견:** 컨테이너가 `unhealthy`로 떨어졌다. 로그는 `wget: can't connect to remote host: Connection refused`. 그런데 라우트는 멀쩡했다 — `127.0.0.1`로는 200, `localhost`로는 거부. Alpine에서 `localhost`가 **`::1`로 먼저 풀리는데 Next.js(standalone)는 `0.0.0.0`, 즉 IPv4에만 바인딩**한다. 애플리케이션은 정상인데 헬스체크만 실패한다.
+- **결정/해결:** 헬스체크 URL을 `127.0.0.1`로 고정했다(backend·frontend 둘 다).
+- **영향:** REL-5, `docker-compose.yml`
+- **다음 주의:** **헬스체크는 반드시 실제로 통과하는 것을 눈으로 본다.** `depends_on: condition: service_healthy`는 헬스체크가 틀리면 조용히 기동을 막거나(타임아웃) 영영 unhealthy로 남는다. 그리고 `docker ps` 상태를 `grep -c healthy`로 검사하면 **`unhealthy`가 매치된다** — 이 오탐 때문에 처음엔 통과한 줄 알았다. 상태 문자열은 정확히 비교한다.

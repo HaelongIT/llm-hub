@@ -81,9 +81,32 @@ docker compose -f docker-compose.yml --profile app up -d --build
 
 Keycloak은 브라우저가 로그인 리다이렉트로 직접 접근해야 하므로 노출한다. 코어·Elasticsearch·PostgreSQL·LiteLLM은 내부 네트워크에서만 보인다(SEC-1). 리버스 프록시 뒤에 둔다면 두 포트를 프록시가 흡수하고 compose의 `ports`를 지운다.
 
+### 헬스체크와 기동 순서 (REL-5)
+
+`frontend`는 `backend`가 healthy가 된 뒤에 뜬다. 코어가 응답하기 전에 BFF가 올라오면 첫 사용자가 502를 본다.
+
+코어의 헬스 엔드포인트는 **관리 포트(컨테이너 내부 9090)**에 있다. 애플리케이션 포트(8080)에 두면 "모든 API는 인증 필요"(SEC-1)가 깨지기 때문이다. 관리 포트는 호스트에 publish하지 않으므로 컨테이너 밖에서 보이지 않고, 8080의 API 표면은 여전히 전부 인증을 요구한다.
+
+> 포트를 나누는 것만으로는 부족하다. WebFlux의 관리 컨텍스트는 부모의 보안 필터체인을 그대로 쓴다 — 관리 포트도 401을 돌려준다. 그래서 `/actuator/health`를 **관리 포트에 한해** 허용하는 체인을 따로 둔다(`ManagementPortMatcher`). `MANAGEMENT_SERVER_PORT`를 설정하지 않으면 액추에이터는 애플리케이션 포트에 남고, 그때는 인증이 필요하다.
+
+로컬에서 코어를 `bootRun`으로 띄울 때는 관리 포트가 꺼져 있다. 헬스 엔드포인트를 보려면 `MANAGEMENT_SERVER_PORT=9090`을 함께 export한다.
+
 첫 기동 때 `docker/postgres/init/`가 Keycloak용 데이터베이스를 만든다. 데이터 디렉토리가 비어 있을 때만 실행되므로, 기존 볼륨에 얹으려면 `create database keycloak;`을 직접 실행한다.
 
 훅은 커밋 전에 테스트를 돌리고, 테스트 무력화 토큰과 비밀정보, 읽기 전용 문서 변경을 차단한다. 사람이 승인한 문서 변경은 `LLMHUB_DOC_EDIT_APPROVED=1 git commit ...`으로 통과시킨다.
+
+## 장애를 추적할 때 (REL-3)
+
+모든 응답에 `X-Trace-Id` 헤더가 붙는다. 인증에 실패한 401에도 붙는다. 사용자가 신고한 값으로 로그와 감사 기록을 함께 찾는다.
+
+```bash
+grep "<trace-id>" backend.log                                    # 색인·검색·LLM 단계
+psql -c "select * from audit_log where trace_id = '<trace-id>'"  # 질문·응답 전문
+```
+
+클라이언트가 보낸 `X-Trace-Id`는 무시한다 — 추적 ID는 감사 기록의 상관관계 키이므로 요청자가 고를 수 없어야 한다.
+
+로그에는 질문·응답·문서 원문이 남지 않는다(SEC-3). 길이·개수·식별자만 남는다. 전문은 감사 로그가 맡는다(S5, `AUDIT_SCOPE`).
 
 ## 요구사항
 
