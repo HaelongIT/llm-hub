@@ -69,10 +69,19 @@ public class ChatController {
 				.map(ChatController::toServerSentEvent);
 	}
 
+	/**
+	 * 세션은 사용자 소유다 (S2). 남의 세션 ID를 넘기면 그 사람의 대화 이력이 프롬프트에 실려 답변으로 새어 나가고, 그 세션에
+	 * 메시지가 덧붙는다. 유출되는 것은 문서 조각이 아니라 <b>대화 이력</b>이므로 접근 태그 필터는 아무 소용이 없다.
+	 *
+	 * <p>세션 ID가 추측하기 어렵다는 것은 통제가 아니다 (SEC-2: 권한 검사 누락 가능 경로가 없어야 한다).
+	 */
 	private Session sessionOf(ChatStreamRequest request, String keycloakSubject) {
 		UUID userId = userRepository.ensureExists(keycloakSubject);
 		if (request.sessionId() == null) {
 			return new Session(historyRepository.createSession(userId, titleOf(request.question())), List.of());
+		}
+		if (!historyRepository.isOwnedBy(request.sessionId(), userId)) {
+			throw new SessionNotFoundException(request.sessionId());
 		}
 		return new Session(request.sessionId(), historyRepository.history(request.sessionId()));
 	}

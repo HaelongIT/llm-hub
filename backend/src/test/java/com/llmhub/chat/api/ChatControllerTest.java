@@ -2,8 +2,11 @@ package com.llmhub.chat.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.llmhub.chat.ChatHistoryRepository;
+import com.llmhub.chat.Message;
 import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.common.embedding.EmbeddingSpec;
+import com.llmhub.common.user.AppUserRepository;
 import com.llmhub.search.ChunkSearchRepository;
 import com.llmhub.search.Source;
 import com.llmhub.support.PostgresInitializer;
@@ -11,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,10 +58,14 @@ class ChatControllerTest {
 
 	@Autowired private WebTestClient client;
 	@Autowired private 검색_감시자 검색;
+	@Autowired private 프롬프트_감시자 모델;
+	@Autowired private ChatHistoryRepository historyRepository;
+	@Autowired private AppUserRepository userRepository;
 
 	@BeforeEach
 	void 감시자를_비운다() {
 		검색.호출된_태그.clear();
+		모델.받은_프롬프트.clear();
 	}
 
 	@Test
@@ -110,6 +118,96 @@ class ChatControllerTest {
 		assertThat(body).contains("연차휴가는 15일이다.");
 	}
 
+	// SEC-2: 권한 검사 누락 가능 경로가 없어야 한다. S2: 세션은 사용자 소유다.
+	//
+	// 유출되는 것은 문서 조각이 아니라 대화 이력이다. 접근 태그 필터는 여기서 아무 소용이 없다.
+
+	@Test
+	@DisplayName("남의 세션 ID로 질문하면 404다")
+	void 남의_세션에는_질문할_수_없다() {
+		UUID 남의_세션 = ADMIN의_세션을_만든다("내 연봉은 8천만원이다");
+
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of("sessionId", 남의_세션.toString(), "question", "연차휴가는?"))
+				.exchange()
+				.expectStatus()
+				.isNotFound();
+	}
+
+	@Test
+	@DisplayName("남의 세션 이력이 프롬프트에 실리지 않는다")
+	void 남의_이력이_프롬프트에_실리지_않는다() {
+		UUID 남의_세션 = ADMIN의_세션을_만든다("내 연봉은 8천만원이다");
+
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of("sessionId", 남의_세션.toString(), "question", "연차휴가는?"))
+				.exchange()
+				.expectBody();
+
+		assertThat(모델.받은_프롬프트)
+				.as("남의 대화 이력이 프롬프트에 실리면 LLM 답변으로 새어 나온다 (S2, SEC-2)")
+				.noneSatisfy(p -> assertThat(p).contains("8천만원"));
+	}
+
+	@Test
+	@DisplayName("남의 세션에 메시지가 덧붙지 않는다")
+	void 남의_세션에_메시지가_덧붙지_않는다() {
+		UUID 남의_세션 = ADMIN의_세션을_만든다("내 연봉은 8천만원이다");
+		int 원래_메시지수 = historyRepository.history(남의_세션).size();
+
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of("sessionId", 남의_세션.toString(), "question", "연차휴가는?"))
+				.exchange()
+				.expectBody();
+
+		assertThat(historyRepository.history(남의_세션).size())
+				.as("피해자가 자기 대화에서 낯선 메시지를 보게 된다")
+				.isEqualTo(원래_메시지수);
+	}
+
+	@Test
+	@DisplayName("자기 세션에는 이력을 이어서 질문할 수 있다")
+	void 자기_세션에는_질문할_수_있다() {
+		UUID 내_세션 = 세션을_만든다("subject-USER", "지난번에 연차 얘기를 했다");
+
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of("sessionId", 내_세션.toString(), "question", "연차휴가는?"))
+				.exchange()
+				.expectStatus()
+				.isOk();
+
+		assertThat(모델.받은_프롬프트)
+				.as("자기 이력은 컨텍스트에 실린다 (S2, E2)")
+				.anySatisfy(p -> assertThat(p).contains("지난번에 연차 얘기를 했다"));
+	}
+
+	private UUID ADMIN의_세션을_만든다(String 이력) {
+		return 세션을_만든다("subject-ADMIN", 이력);
+	}
+
+	private UUID 세션을_만든다(String keycloakSubject, String 이력) {
+		UUID userId = userRepository.ensureExists(keycloakSubject);
+		UUID sessionId = historyRepository.createSession(userId, "대화");
+		historyRepository.append(sessionId, Message.user(이력), null);
+		return sessionId;
+	}
+
 	private WebTestClient.ResponseSpec 질문한다(String token) {
 		return client
 				.post()
@@ -151,20 +249,14 @@ class ChatControllerTest {
 		}
 
 		@Bean
-		@Primary
-		ChatModel 대역_모델() {
-			return new ChatModel() {
-				@Override
-				public ChatResponse call(Prompt prompt) {
-					throw new UnsupportedOperationException("스트리밍만 쓴다");
-				}
+		프롬프트_감시자 프롬프트_감시자() {
+			return new 프롬프트_감시자();
+		}
 
-				@Override
-				public Flux<ChatResponse> stream(Prompt prompt) {
-					return Flux.just("연차휴가는 ", "15일입니다.")
-							.map(d -> new ChatResponse(List.of(new Generation(new AssistantMessage(d)))));
-				}
-			};
+		@Bean
+		@Primary
+		ChatModel 대역_모델(프롬프트_감시자 감시자) {
+			return 감시자;
 		}
 
 		@Bean
@@ -187,6 +279,23 @@ class ChatControllerTest {
 					.expiresAt(now.plusSeconds(3600))
 					.claim("realm_access", Map.of("roles", List.of(role)))
 					.build();
+		}
+	}
+
+	/** LLM에 실제로 무엇이 실려 갔는지 본다. 유출은 응답이 아니라 프롬프트에서 시작된다. */
+	static class 프롬프트_감시자 implements ChatModel {
+		final List<String> 받은_프롬프트 = new CopyOnWriteArrayList<>();
+
+		@Override
+		public ChatResponse call(Prompt prompt) {
+			throw new UnsupportedOperationException("스트리밍만 쓴다");
+		}
+
+		@Override
+		public Flux<ChatResponse> stream(Prompt prompt) {
+			받은_프롬프트.add(prompt.getContents());
+			return Flux.just("연차휴가는 ", "15일입니다.")
+					.map(d -> new ChatResponse(List.of(new Generation(new AssistantMessage(d)))));
 		}
 	}
 
