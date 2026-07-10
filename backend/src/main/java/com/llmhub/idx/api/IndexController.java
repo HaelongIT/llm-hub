@@ -1,6 +1,7 @@
 package com.llmhub.idx.api;
 
 import com.llmhub.common.Blocking;
+import com.llmhub.common.user.AppUserRepository;
 import com.llmhub.idx.service.IndexRequest;
 import com.llmhub.idx.service.IndexResult;
 import com.llmhub.idx.service.IndexingService;
@@ -11,6 +12,8 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,16 +38,19 @@ import reactor.core.publisher.Mono;
 public class IndexController {
 
 	private final IndexingService indexingService;
+	private final AppUserRepository userRepository;
 
-	public IndexController(IndexingService indexingService) {
+	public IndexController(IndexingService indexingService, AppUserRepository userRepository) {
 		this.indexingService = indexingService;
+		this.userRepository = userRepository;
 	}
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public Mono<IndexResult> index(
 			@RequestPart("file") FilePart file,
 			@RequestPart("docKey") String docKey,
-			@RequestPart("accessTags") String accessTags) {
+			@RequestPart("accessTags") String accessTags,
+			@AuthenticationPrincipal Jwt jwt) {
 
 		MediaType contentType = file.headers().getContentType();
 		List<String> tags = Arrays.stream(accessTags.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
@@ -61,7 +67,9 @@ public class IndexController {
 																file.filename(),
 																contentType == null ? "" : contentType.toString(),
 																content,
-																tags))));
+																tags,
+																// 누가 올렸는지 document에 남긴다 (docs/03). 권한 판단이 아니라 신원 확인이다.
+																userRepository.ensureExists(jwt.getSubject())))));
 	}
 
 	/**

@@ -80,7 +80,8 @@ public final class IndexingService {
 				request.filename(),
 				request.accessTags(),
 				request.content(),
-				() -> fileStorage.store(request.filename(), request.content()));
+				() -> fileStorage.store(request.filename(), request.content()),
+				request.uploadedBy());
 	}
 
 	/**
@@ -97,7 +98,8 @@ public final class IndexingService {
 		byte[] content = fileStorage.read(document.storageKey());
 		log.info("재색인 시작 docKey={} documentId={} bytes={}", docKey, document.id(), content.length);
 
-		return run(docKey, document.filename(), document.accessTags(), content, document::storageKey);
+		// uploadedBy는 null이다. 재색인은 보관된 원본을 다시 읽을 뿐, 누가 다시 올린 것이 아니다.
+		return run(docKey, document.filename(), document.accessTags(), content, document::storageKey, null);
 	}
 
 	/** 현재 설정과 다른 모델로 색인된 문서들. 재색인 대상이다 (E9). */
@@ -112,13 +114,15 @@ public final class IndexingService {
 	 *
 	 * @param storageKey 원본의 저장 키. 업로드는 지금 저장하고, 재색인은 보관된 것을 그대로 쓴다. 임베딩이 끝난 뒤에야
 	 *     평가된다.
+	 * @param uploadedBy 파일을 올린 사람. 재색인은 {@code null}이며, 그때 기존 값이 유지된다.
 	 */
 	private IndexResult run(
 			String docKey,
 			String filename,
 			List<String> accessTags,
 			byte[] content,
-			Supplier<String> storageKey) {
+			Supplier<String> storageKey,
+			UUID uploadedBy) {
 
 		DocumentParser parser = parserFor(extensionOf(filename));
 		String text = parser.extractText(content, filename);
@@ -140,7 +144,7 @@ public final class IndexingService {
 		log.debug("임베딩 완료 docKey={} model={} vectors={}", docKey, spec.model(), vectors.size());
 
 		DocumentRecord document =
-				documentRepository.upsert(docKey, filename, storageKey.get(), accessTags, spec.model());
+				documentRepository.upsert(docKey, filename, storageKey.get(), accessTags, spec.model(), uploadedBy);
 
 		String indexingRunId = UUID.randomUUID().toString();
 		List<IndexedChunk> indexed =

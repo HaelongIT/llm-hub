@@ -33,7 +33,12 @@ public class PostgresDocumentRepository implements DocumentRepository {
 	@Override
 	@Transactional
 	public DocumentRecord upsert(
-			String docKey, String filename, String storageKey, List<String> accessTags, String embeddingModel) {
+			String docKey,
+			String filename,
+			String storageKey,
+			List<String> accessTags,
+			String embeddingModel,
+			UUID uploadedBy) {
 		Instant now = Instant.now(clock);
 		String[] tags = accessTags.toArray(String[]::new);
 
@@ -43,7 +48,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 						.map(
 								existing -> {
 									// 같은 doc_key는 같은 document다. id가 바뀌면 조각들이 고아가 된다 (S17).
-									existing.replaceWith(filename, storageKey, tags, embeddingModel, now);
+									existing.replaceWith(filename, storageKey, tags, embeddingModel, uploadedBy, now);
 									return existing;
 								})
 						.orElseGet(
@@ -56,6 +61,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 												tags,
 												embeddingModel,
 												CHUNKING_VERSION,
+												uploadedBy,
 												now));
 
 		DocumentEntity saved = jpaRepository.save(entity);

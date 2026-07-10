@@ -36,6 +36,7 @@ class IndexingServiceTest {
 
 	private static final EmbeddingSpec 설정된_임베딩 = new EmbeddingSpec("bge-m3", 4);
 	private static final Instant 고정시각 = Instant.parse("2026-07-10T02:00:00Z");
+	private static final java.util.UUID 업로더 = java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
 
 	private static final byte[] 본문 =
 			("연차휴가는 근로기준법에 따라 부여한다. 1년간 80퍼센트 이상 출근한 근로자에게 15일의 유급휴가를 준다. "
@@ -206,7 +207,7 @@ class IndexingServiceTest {
 		assertThatThrownBy(
 						() ->
 								service.index(
-										new IndexRequest("문서", "문서.hwp", "application/x-hwp", 본문, List.of("public"))))
+										new IndexRequest("문서", "문서.hwp", "application/x-hwp", 본문, List.of("public"), 업로더)))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("hwp");
 	}
@@ -234,6 +235,19 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("재색인은 업로더를 다시 지정하지 않는다")
+	void 재색인은_업로더를_건드리지_않는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		service.index(요청("규정", "규정.txt", List.of("public")));
+
+		service.reindex("규정");
+
+		assertThat(documents.마지막_업로더)
+				.as("재색인은 보관된 원본을 다시 읽을 뿐, 누가 다시 올린 것이 아니다. null이 '기존 유지'다")
+				.isNull();
+	}
+
+	@Test
 	@DisplayName("재색인은 원본을 새로 저장하지 않는다")
 	void 재색인은_원본을_다시_쓰지_않는다(@TempDir Path root) {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
@@ -256,7 +270,7 @@ class IndexingServiceTest {
 		// 문서의 접근 태그가 바뀌었다. document가 태그의 유일한 원천이다 (S18).
 		DocumentRecord 문서 = documents.byId.get(결과.documentId());
 		documents.upsert(
-				"규정", 문서.filename(), 문서.storageKey(), List.of("public", "restricted"), 문서.embeddingModel());
+				"규정", 문서.filename(), 문서.storageKey(), List.of("public", "restricted"), 문서.embeddingModel(), null);
 
 		service.reindex("규정");
 
@@ -364,7 +378,7 @@ class IndexingServiceTest {
 	}
 
 	private static IndexRequest 요청(String docKey, String filename, List<String> tags) {
-		return new IndexRequest(docKey, filename, "text/plain", 본문, tags);
+		return new IndexRequest(docKey, filename, "text/plain", 본문, tags, 업로더);
 	}
 
 	// ─── 테스트 대역 ───
@@ -444,9 +458,18 @@ class IndexingServiceTest {
 		private final Map<String, DocumentRecord> byId = new java.util.LinkedHashMap<>();
 		private final Map<String, String> idByDocKey = new java.util.LinkedHashMap<>();
 
+		/** 마지막 upsert가 받은 업로더. 재색인은 null이어야 한다. */
+		private java.util.UUID 마지막_업로더 = new java.util.UUID(0, 0);
+
 		@Override
 		public DocumentRecord upsert(
-				String docKey, String filename, String storageKey, List<String> accessTags, String embeddingModel) {
+				String docKey,
+				String filename,
+				String storageKey,
+				List<String> accessTags,
+				String embeddingModel,
+				java.util.UUID uploadedBy) {
+			마지막_업로더 = uploadedBy;
 			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (byId.size() + 1));
 			DocumentRecord record =
 					new DocumentRecord(id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel);

@@ -35,6 +35,7 @@ class IndexingPipelineIntegrationTest {
 
 	private static final EmbeddingSpec 임베딩 = new EmbeddingSpec("stub-embedding", 4);
 	private static final Instant 고정시각 = Instant.parse("2026-07-10T02:00:00Z");
+	private static final java.util.UUID 업로더 = java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
 
 	@Test
 	@DisplayName("PDF를 색인하면 조각이 ES에 저장되고 메타 7종이 모두 존재한다")
@@ -54,7 +55,7 @@ class IndexingPipelineIntegrationTest {
 
 		byte[] pdf = MinimalPdf.withText("Annual leave is 15 days per year");
 		IndexResult 결과 =
-				service.index(new IndexRequest("policy-2026", "policy.pdf", "application/pdf", pdf, List.of("public")));
+				service.index(new IndexRequest("policy-2026", "policy.pdf", "application/pdf", pdf, List.of("public"), 업로더));
 
 		List<IndexedChunk> 저장된_조각 = chunkRepository.findByDocumentId(결과.documentId());
 
@@ -91,7 +92,7 @@ class IndexingPipelineIntegrationTest {
 
 		byte[] pdf = MinimalPdf.withText("Annual leave is 15 days per year");
 		IndexResult 구버전 =
-				service.index(new IndexRequest("reindex-me", "policy.pdf", "application/pdf", pdf, List.of("public")));
+				service.index(new IndexRequest("reindex-me", "policy.pdf", "application/pdf", pdf, List.of("public"), 업로더));
 
 		// 파일을 다시 주지 않는다. doc_key만 준다 (S16).
 		IndexResult 신버전 = service.reindex("reindex-me");
@@ -136,7 +137,7 @@ class IndexingPipelineIntegrationTest {
 		byte[] hwp = MinimalHwp.withText("연차휴가는 근로기준법에 따라 부여한다.");
 		IndexResult 결과 =
 				service.index(
-						new IndexRequest("hwp-정책", "인사규정.hwp", "application/x-hwp", hwp, List.of("restricted")));
+						new IndexRequest("hwp-정책", "인사규정.hwp", "application/x-hwp", hwp, List.of("restricted"), 업로더));
 
 		List<IndexedChunk> 저장된_조각 = chunkRepository.findByDocumentId(결과.documentId());
 
@@ -166,7 +167,12 @@ class IndexingPipelineIntegrationTest {
 
 		@Override
 		public DocumentRecord upsert(
-				String docKey, String filename, String storageKey, List<String> accessTags, String embeddingModel) {
+				String docKey,
+				String filename,
+				String storageKey,
+				List<String> accessTags,
+				String embeddingModel,
+				java.util.UUID uploadedBy) {
 			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (idByDocKey.size() + 1));
 			DocumentRecord record = new DocumentRecord(id, docKey, filename, storageKey, accessTags, embeddingModel);
 			byDocKey.put(docKey, record);

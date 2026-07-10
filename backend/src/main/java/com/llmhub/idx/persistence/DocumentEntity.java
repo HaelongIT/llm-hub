@@ -37,6 +37,14 @@ public class DocumentEntity {
 	@Column(name = "chunking_version", nullable = false)
 	private String chunkingVersion;
 
+	/**
+	 * 이 문서를 올린 사람 (docs/03, {@code FK→app_user}).
+	 *
+	 * <p>색인은 관리자 행위이고 감사 로그는 채팅만 기록한다. 누가 어떤 문서를 올렸는지가 남는 유일한 자리다.
+	 */
+	@Column(name = "uploaded_by")
+	private UUID uploadedBy;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -53,6 +61,7 @@ public class DocumentEntity {
 			String[] accessTags,
 			String embeddingModel,
 			String chunkingVersion,
+			UUID uploadedBy,
 			Instant now) {
 		this.id = id;
 		this.docKey = docKey;
@@ -61,16 +70,31 @@ public class DocumentEntity {
 		this.accessTags = accessTags.clone();
 		this.embeddingModel = embeddingModel;
 		this.chunkingVersion = chunkingVersion;
+		this.uploadedBy = uploadedBy;
 		this.createdAt = now;
 		this.updatedAt = now;
 	}
 
-	/** 재업로드. id와 생성 시각은 유지한다 (S17). */
-	void replaceWith(String filename, String originalPath, String[] accessTags, String embeddingModel, Instant now) {
+	/**
+	 * 재업로드·재색인. id와 생성 시각은 유지한다 (S17).
+	 *
+	 * @param uploadedBy 새로 올린 사람. <b>{@code null}이면 기존 값을 유지한다</b> — 재색인은 보관된 원본을 다시
+	 *     읽을 뿐이므로 올린 사람이 바뀌지 않는다.
+	 */
+	void replaceWith(
+			String filename,
+			String originalPath,
+			String[] accessTags,
+			String embeddingModel,
+			UUID uploadedBy,
+			Instant now) {
 		this.filename = filename;
 		this.originalPath = originalPath;
 		this.accessTags = accessTags.clone();
 		this.embeddingModel = embeddingModel;
+		if (uploadedBy != null) {
+			this.uploadedBy = uploadedBy;
+		}
 		this.updatedAt = now;
 	}
 
@@ -96,6 +120,10 @@ public class DocumentEntity {
 
 	public String getEmbeddingModel() {
 		return embeddingModel;
+	}
+
+	public UUID getUploadedBy() {
+		return uploadedBy;
 	}
 
 	public Instant getCreatedAt() {

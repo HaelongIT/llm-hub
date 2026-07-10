@@ -50,6 +50,7 @@ class IndexControllerTest {
 
 	@Autowired private WebTestClient client;
 	@Autowired private 조각_수집기 chunks;
+	@Autowired private com.llmhub.idx.persistence.DocumentJpaRepository documents;
 
 	/** 수집기는 Spring 컨텍스트 싱글턴이다. 비우지 않으면 앞 테스트의 조각이 남아 단언을 오염시킨다. */
 	@org.junit.jupiter.api.BeforeEach
@@ -150,6 +151,23 @@ class IndexControllerTest {
 		assertThat(chunks.실행_스레드)
 				.as("재색인도 블로킹이다. 이벤트 루프에서 돌면 안 된다 (S13)")
 				.allSatisfy(name -> assertThat(name).startsWith("boundedElastic-"));
+	}
+
+	@Test
+	@DisplayName("업로드한 관리자가 document에 기록되고, 재색인은 그것을 바꾸지 않는다")
+	void 업로더가_기록되고_재색인이_바꾸지_않는다() {
+		업로드(ADMIN_토큰).expectStatus().isOk();
+
+		java.util.UUID 올린이 = 문서의_업로더();
+		assertThat(올린이).as("restricted 문서를 누가 올렸는지 남는 유일한 자리다 (docs/03)").isNotNull();
+
+		재색인(ADMIN_토큰, "규정-2026").expectStatus().isOk();
+
+		assertThat(문서의_업로더()).as("재색인은 다시 올린 것이 아니다").isEqualTo(올린이);
+	}
+
+	private java.util.UUID 문서의_업로더() {
+		return documents.findByDocKey("규정-2026").orElseThrow().getUploadedBy();
 	}
 
 	@Test
