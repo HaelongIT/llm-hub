@@ -1,0 +1,23 @@
+{
+  "realm": "llmhub",
+  "enabled": true,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      { "name": "USER", "description": "일반 사용자. RoleTagMapper가 {public} 태그로 매핑한다 (S3, E4)." },
+      { "name": "ADMIN", "description": "관리자. 색인 API 호출 권한. {public, restricted} 태그 (S3, SEC-2)." }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "llmhub-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "description": "리소스 서버. JWT를 검증만 하며 로그인 플로우를 수행하지 않는다."
+    }
+  ]
+}
