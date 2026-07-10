@@ -52,7 +52,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 			return { ...token, ...refreshed };
 		},
 		session({ session, token }) {
-			session.accessToken = token.accessToken;
+			// access token을 세션에 싣지 않는다 (R-8). 세션은 /api/auth/session으로 브라우저 JS에
+			// 노출되므로, 토큰은 JWT 쿠키에만 두고 BFF가 서버측(lib/core bearerToken)에서만 꺼낸다.
+			// error는 재로그인 판단에 필요하고 민감정보가 아니므로 노출한다.
 			session.error = token.error;
 			return session;
 		},

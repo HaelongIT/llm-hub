@@ -360,3 +360,10 @@
 - **audience는 realm이 내보내 줘야 검증할 수 있다.** 기본 Keycloak access token은 다른 클라이언트를 `aud`에 안 넣는다(realm 역할이라 Audience Resolve 매퍼도 안 걸림). `oidc-audience-mapper`(included.client.audience=llmhub-backend)를 프론트 클라이언트/스코프에 걸어야 토큰이 `aud=llmhub-backend`를 담는다. `bootstrap-dev.sh`에 그 매퍼 추가를 넣었다.
 - **테스트 공존:** 컨트롤러 테스트들은 `@Primary ReactiveJwtDecoder` 대역을 정의해 crafted Jwt를 바로 돌려준다. 프로덕션 `jwtDecoder` 빈(non-primary)을 추가해도 @Primary가 이겨 충돌하지 않는다. 빈은 인스턴스화되지만 `build()`가 지연 조회라 컨텍스트 로드에 네트워크가 없다. `AudienceValidator`는 순수라 crafted Jwt로 단위 테스트(뮤테이션 확인).
 - **검증 경계(정직):** 백엔드 검증기는 단위 테스트로 확정. 실토큰이 `aud`를 담고 issuer가 일치하는지는 **Keycloak을 못 띄워 확인 못 함**(OQ-012). 두 검증 모두 **fail-closed** — 어긋나면 로그인만 막히고(자기 DoS) 인가 우회는 없다. 운영 프론트 클라이언트 프로비저닝은 저장소 밖(dev는 bootstrap-dev.sh)이라 운영도 매퍼가 필요하다.
+
+## [2026-07-11] 세션에 실은 것은 브라우저가 읽는다 — 토큰은 JWT 쿠키에만 둔다 (R-8)
+- **상황:** `auth.ts` session 콜백이 `session.accessToken`을 세웠다. Auth.js는 session 콜백의 반환을 그대로 `/api/auth/session` 응답으로 내보내므로, 브라우저 JS가 `fetch('/api/auth/session')`로 베어러를 읽을 수 있었다. "BFF만 토큰을 쥔다"(docs/01)가 깨진다.
+- **해결:** session에서 accessToken을 뺀다(error만 남긴다 — 재로그인 판단용, 민감정보 아님). 토큰은 **암호화된 JWT 쿠키**에만 있고, BFF가 `getToken`(next-auth/jwt)으로 **서버측**에서만 꺼낸다(`lib/core.ts` bearerToken). proxyToCore·chat stream 라우트 둘 다 이 헬퍼를 쓴다. `types/next-auth.d.ts`의 Session에서 accessToken 제거(JWT에는 유지).
+- **getToken 함정 — salt는 쿠키명과 같아야 복호화된다.** Auth.js는 세션 JWT를 `salt = cookieName`으로 암호화한다. 쿠키명은 https에서 `__Secure-authjs.session-token`, http에서 `authjs.session-token`이다. `secureCookie`를 틀리면 쿠키를 못 찾거나 salt가 어긋나 복호화 실패 → **모든 BFF 호출 401**. 실제 요청 쿠키에 `__Secure-` 접두사가 있는지로 감지해 dev·운영 모두 맞춘다. 큰 토큰이 청크된 쿠키(`.0`,`.1`)는 getToken 내부 SessionStore가 합친다.
+- **plumbing:** `next/headers`의 `headers()`(Next 16은 async)로 요청 헤더를 얻어 `getToken({req:{headers}})`에 넘긴다. proxyToCore 3개 호출부에 request를 스레딩하지 않아도 된다(요청 스코프에서 headers()가 동작).
+- **검증 경계:** `bearerToken`은 `next/headers`·next-auth를 끌어 `node --test`로 못 켠다. 타입체크·`next build`로 컴파일·타입은 확정했으나, **실토큰 쿠키를 실제로 복호화해 BFF가 여전히 인가하는지**는 실스택(Next+Keycloak 로그인)이 있어야 확인된다 — 프론트 마감 때 브라우저 검증과 함께 본다. fail-closed(틀리면 401)라 보안 우회는 없다.
