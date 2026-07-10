@@ -73,9 +73,14 @@ dependencies {
 	testImplementation("org.testcontainers:elasticsearch")
 	testImplementation("org.testcontainers:postgresql")
 	testImplementation("org.testcontainers:junit-jupiter")
+	// 논블로킹 스레드에서의 블로킹 호출을 잡는다. 다만 JDK 21에서 Thread.sleep 계열을
+	// 더 이상 잡지 못하는 구멍이 있어, 스레드 이름 단언과 함께 쓴다 (docs/LEARNINGS).
+	testImplementation("io.projectreactor.tools:blockhound:1.0.17.RELEASE")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	// BlockHound는 네이티브 메서드를 재정의한다. JDK 13+ 에서는 이 플래그가 없으면 동작하지 않는다.
+	jvmArgs("-XX:+AllowRedefinitionToAddDeleteMethods")
 }
