@@ -15,15 +15,20 @@
 | [docs/03-data-model.md](docs/03-data-model.md) | 스키마와 불변식 |
 | [docs/04-nonfunctional.md](docs/04-nonfunctional.md) | 보안·성능·운영 요구사항 |
 | [docs/05-tdd-workflow.md](docs/05-tdd-workflow.md) | TDD 절차 (테스트 먼저) |
+| [docs/08-autonomy-protocol.md](docs/08-autonomy-protocol.md) | **자율 진행 규칙** — 언제 멈추고 언제 계속하는가 |
 | [docs/LEARNINGS.md](docs/LEARNINGS.md) | 누적된 교훈 — 세션 시작 시 읽는다 |
+| [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) | 보류된 질문 — 나중에 확인할 것들 |
 | [docs/requirements/](docs/requirements/) | 모듈별 상세 요구사항 (= TDD 단위) |
 
 ## 로컬 개발 환경
 
 ```bash
-cp .env.example .env    # 값을 채운다. .env는 커밋하지 않는다.
-docker compose up -d    # PostgreSQL · Elasticsearch(nori) · Keycloak · LiteLLM
+git config core.hooksPath .githooks   # 필수. 테스트·비밀정보·문서 보호 훅을 켠다.
+cp .env.example .env                  # 값을 채운다. .env는 커밋하지 않는다.
+docker compose up -d                  # PostgreSQL · Elasticsearch(nori) · Keycloak · LiteLLM
 ```
+
+훅은 커밋 전에 테스트를 돌리고, 테스트 무력화 토큰과 비밀정보, 읽기 전용 문서 변경을 차단한다. 사람이 승인한 문서 변경은 `LLMHUB_DOC_EDIT_APPROVED=1 git commit ...`으로 통과시킨다.
 
 ## 요구사항
 
