@@ -1,9 +1,15 @@
 package com.llmhub.auth;
 
 import com.llmhub.common.TraceIdWebFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
@@ -35,6 +41,30 @@ public class SecurityConfig {
 	@Bean
 	RoleTagMapper roleTagMapper(AuthProperties properties) {
 		return new ConfiguredRoleTagMapper(properties.roleTags());
+	}
+
+	/**
+	 * JWT 검증기. 서명·만료만으로는 부족하다 (R-16).
+	 *
+	 * <p><b>서명</b>은 {@code jwk-set-uri}로 확인한다(첫 검증 때 지연 조회하므로 Keycloak 없이도 컨텍스트가
+	 * 뜬다). 여기에 <b>issuer</b>(다른 realm 거부)와 <b>audience</b>(같은 realm의 다른 클라이언트 거부)를
+	 * 더한다. issuer는 정적 문자열 검증이라 네트워크 호출이 없다 — {@code issuer-uri}와 달리 기동을 막지 않는다.
+	 *
+	 * <p>issuer는 토큰의 {@code iss}(Keycloak의 외부 호스트명)와 같아야 한다. {@code jwk-set-uri}(내부
+	 * 호스트)와 다르므로 별도 설정값이다.
+	 */
+	@Bean
+	ReactiveJwtDecoder jwtDecoder(
+			@Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri,
+			@Value("${llmhub.auth.jwt.issuer}") String issuer,
+			@Value("${llmhub.auth.jwt.audience}") String audience) {
+		NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri).build();
+		decoder.setJwtValidator(
+				new DelegatingOAuth2TokenValidator<>(
+						new JwtTimestampValidator(),
+						new JwtIssuerValidator(issuer),
+						new AudienceValidator(audience)));
+		return decoder;
 	}
 
 	/**

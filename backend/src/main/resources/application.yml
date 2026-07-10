@@ -73,6 +73,11 @@ llmhub:
         - restricted
     # v0는 실질 정책 없이 자리만 (S10). 리터럴로 박으면 RATE_LIMIT_ENABLED가 죽은 설정이 된다 (R-15).
     rate-limit-enabled: ${RATE_LIMIT_ENABLED:false}
+    # JWT 검증. 서명·만료 외에 issuer(다른 realm 거부)·audience(같은 realm 다른 클라이언트 거부)를 본다 (R-16).
+    jwt:
+      # 토큰의 iss와 같아야 한다 = Keycloak 외부 호스트명. jwk-set-uri(내부 호스트)와 다르다.
+      issuer: ${KEYCLOAK_ISSUER:http://localhost:8081/realms/llmhub}
+      audience: ${JWT_AUDIENCE:llmhub-backend}
     # BFF만 외부 노출된다 (SEC-1).
     cors-allowed-origins:
       - ${FRONTEND_ORIGIN:http://localhost:3000}

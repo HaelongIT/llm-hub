@@ -352,3 +352,11 @@
 - **검증법:** `docker compose --env-file .env.example -f docker-compose.yml config`가 앵커·env를 해석해 최종 서비스 정의를 뱉는다. 여기서 backend env에 키가 있는지 grep으로 확인했다. compose는 유닛 테스트가 없으니 이 resolve가 검증이다.
 - **R-7 (로그 회전):** 어느 서비스에도 `logging:` 설정이 없었다. Docker 기본 json-file은 크기 제한이 없어 디스크를 채운다 → PG WAL 실패·ES read-only. YAML 앵커(`x-logging: &default-logging`, max-size 10m/max-file 5)를 만들어 6개 서비스 전부에 `logging: *default-logging`으로 걸었다. config resolve에서 max-size 블록 수로 확인.
 - **R-15 (죽은 설정):** `application.yml`이 `rate-limit-enabled: false`를 **리터럴로** 박아, `.env`의 `RATE_LIMIT_ENABLED`가 무시됐다. `${RATE_LIMIT_ENABLED:false}`로 바꿔 다른 튜너블과 같게 만들었다. v0 필터는 어차피 통과시키므로 기능 변화는 없지만, **설정이 있는데 무시되는 것 자체가 운영자를 오도한다.** "설정이 존재한다"와 "그 설정이 코드 경로에 닿는다"는 다르다 — 이 셋의 공통 교훈이다.
+
+## [2026-07-11] JWT는 서명·만료만으로 부족하다 — issuer·audience로 대상을 좁힌다 (R-16)
+- **상황:** 백엔드가 `jwk-set-uri`만 써서 서명·만료만 검증했다. 같은 realm 키로 서명된 토큰이면 다른 클라이언트용이라도 통과했다.
+- **왜 실재하나:** 명시 클라이언트는 `llmhub-backend`(bearerOnly) 하나지만, **모든 Keycloak realm에는 기본 클라이언트(account·admin-cli·security-admin-console 등)가 암묵적으로 존재**해 같은 키로 서명된 토큰을 발급할 수 있다. 역할만 맞으면 통과했다.
+- **issuer는 정적 문자열 검증이다 — 네트워크 호출이 없다.** `issuer-uri`(OIDC 설정을 빈 생성 때 가져옴 → Keycloak 없이 기동 불가)와 다르다. `NimbusReactiveJwtDecoder.withJwkSetUri(uri).build()` 후 `setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestamp, new JwtIssuerValidator(issuer), audienceValidator))`. jwk-set-uri(내부 호스트)와 issuer(토큰 iss = Keycloak **외부** 호스트명)는 **다른 값**이라 별도 설정이다.
+- **audience는 realm이 내보내 줘야 검증할 수 있다.** 기본 Keycloak access token은 다른 클라이언트를 `aud`에 안 넣는다(realm 역할이라 Audience Resolve 매퍼도 안 걸림). `oidc-audience-mapper`(included.client.audience=llmhub-backend)를 프론트 클라이언트/스코프에 걸어야 토큰이 `aud=llmhub-backend`를 담는다. `bootstrap-dev.sh`에 그 매퍼 추가를 넣었다.
+- **테스트 공존:** 컨트롤러 테스트들은 `@Primary ReactiveJwtDecoder` 대역을 정의해 crafted Jwt를 바로 돌려준다. 프로덕션 `jwtDecoder` 빈(non-primary)을 추가해도 @Primary가 이겨 충돌하지 않는다. 빈은 인스턴스화되지만 `build()`가 지연 조회라 컨텍스트 로드에 네트워크가 없다. `AudienceValidator`는 순수라 crafted Jwt로 단위 테스트(뮤테이션 확인).
+- **검증 경계(정직):** 백엔드 검증기는 단위 테스트로 확정. 실토큰이 `aud`를 담고 issuer가 일치하는지는 **Keycloak을 못 띄워 확인 못 함**(OQ-012). 두 검증 모두 **fail-closed** — 어긋나면 로그인만 막히고(자기 DoS) 인가 우회는 없다. 운영 프론트 클라이언트 프로비저닝은 저장소 밖(dev는 bootstrap-dev.sh)이라 운영도 매퍼가 필요하다.

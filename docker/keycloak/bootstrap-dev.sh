@@ -76,6 +76,27 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────
+# audience 매퍼. 백엔드가 aud=llmhub-backend를 검증하므로(R-16), 이 클라이언트가 발급하는 access
+# token에 그 대상을 넣어 준다. 없으면 백엔드가 정당한 토큰도 거부한다. 재실행 가능하게 있으면 건너뛴다.
+# ─────────────────────────────────────────────────────────────
+client_id=$(kcadm get clients -r "$KEYCLOAK_REALM" \
+	-q "clientId=$KEYCLOAK_CLIENT_ID" --fields id --format csv --noquotes | tr -d '\r')
+
+has_audience_mapper=$(kcadm get "clients/$client_id/protocol-mappers/models" -r "$KEYCLOAK_REALM" \
+	--fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c "^llmhub-backend-audience$" || true)
+
+if [ "$has_audience_mapper" = "0" ]; then
+	echo "▸ audience 매퍼 추가: aud=llmhub-backend"
+	kcadm create "clients/$client_id/protocol-mappers/models" -r "$KEYCLOAK_REALM" \
+		-s name=llmhub-backend-audience \
+		-s protocol=openid-connect \
+		-s protocolMapper=oidc-audience-mapper \
+		-s 'config."included.client.audience"=llmhub-backend' \
+		-s 'config."id.token.claim"=false' \
+		-s 'config."access.token.claim"=true' >/dev/null
+fi
+
+# ─────────────────────────────────────────────────────────────
 # 개발용 사용자. 역할이 접근 태그를 결정한다 (S3):
 #   USER  → {public}
 #   ADMIN → {public, restricted} + 색인 API 호출 권한

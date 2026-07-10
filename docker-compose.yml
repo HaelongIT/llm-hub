@@ -136,6 +136,9 @@ services:
       MAX_CONTEXT_TOKENS: ${MAX_CONTEXT_TOKENS:-3000}
       MAX_QUESTION_CHARS: ${MAX_QUESTION_CHARS:-4000}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      # JWT issuer는 토큰의 iss(Keycloak 외부 호스트명)와 같아야 한다. jwk-set-uri(내부)와 다르다 (R-16).
+      KEYCLOAK_ISSUER: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}/realms/${KEYCLOAK_REALM}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-llmhub-backend}
       # 외부 호출 타임아웃. 없으면 게이트웨이·ES 무응답 시 무한 대기다 (REL-1).
       EMBEDDING_CONNECT_TIMEOUT: ${EMBEDDING_CONNECT_TIMEOUT:-5s}
       EMBEDDING_READ_TIMEOUT: ${EMBEDDING_READ_TIMEOUT:-120s}
