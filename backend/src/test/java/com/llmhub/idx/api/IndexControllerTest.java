@@ -78,6 +78,18 @@ class IndexControllerTest {
 	}
 
 	@Test
+	@DisplayName("허용되지 않은 확장자는 400이다 — 서버 장애가 아니라 클라이언트 잘못이다")
+	void 허용되지_않은_확장자는_400이다() {
+		// MIME 불일치도 같은 예외(UploadRejectedException)를 던지므로 같은 400이 된다.
+		// 그쪽은 여기서 재현할 수 없다 — ResourceHttpMessageWriter가 파일명에서 Content-Type을
+		// 다시 유도해 버려서 이 대역으로는 MIME을 속일 수 없다. 실제 클라이언트는 속일 수 있고,
+		// 그 경로는 UploadValidatorTest가 단위로 막는다.
+		업로드(ADMIN_토큰, "악성.exe", MediaType.APPLICATION_OCTET_STREAM).expectStatus().isBadRequest();
+
+		assertThat(chunks.저장된).as("거부된 업로드는 아무것도 색인하지 않는다 (SEC-4)").isEmpty();
+	}
+
+	@Test
 	@DisplayName("인증 없이 색인을 시도하면 401이다")
 	void 인증이_없으면_401이다() {
 		client
@@ -149,6 +161,23 @@ class IndexControllerTest {
 	}
 
 	@Test
+	@DisplayName("실패 응답의 본문 traceId가 응답 헤더의 추적 ID와 같다")
+	void 실패해도_추적_ID로_이어진다() {
+		// 실패한 요청이야말로 추적이 필요하다. 헤더와 본문이 다른 값을 주면 사용자가
+		// 무엇을 신고해야 할지 알 수 없다 (REL-3).
+		재색인(ADMIN_토큰, "존재하지-않는-키")
+				.expectStatus()
+				.isNotFound()
+				.expectBody()
+				.consumeWith(결과 -> {
+					String 헤더 = 결과.getResponseHeaders().getFirst(com.llmhub.common.TraceId.HEADER);
+					String 본문 = new String(결과.getResponseBody(), java.nio.charset.StandardCharsets.UTF_8);
+					assertThat(헤더).isNotBlank();
+					assertThat(본문).contains("\"traceId\":\"" + 헤더 + "\"");
+				});
+	}
+
+	@Test
 	@DisplayName("ADMIN은 재색인 대상 목록을 조회할 수 있다")
 	void ADMIN은_재색인_대상을_조회한다() {
 		client
@@ -172,25 +201,34 @@ class IndexControllerTest {
 	}
 
 	private WebTestClient.ResponseSpec 업로드(String token) {
+		return 업로드(token, "규정.txt", MediaType.TEXT_PLAIN);
+	}
+
+	private WebTestClient.ResponseSpec 업로드(String token, String filename, MediaType contentType) {
 		return client
 				.post()
 				.uri("/api/index")
 				.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
 				.contentType(MediaType.MULTIPART_FORM_DATA)
-				.bodyValue(멀티파트())
+				.bodyValue(멀티파트(filename, contentType))
 				.exchange();
 	}
 
 	private static org.springframework.util.MultiValueMap<String, org.springframework.http.HttpEntity<?>> 멀티파트() {
+		return 멀티파트("규정.txt", MediaType.TEXT_PLAIN);
+	}
+
+	private static org.springframework.util.MultiValueMap<String, org.springframework.http.HttpEntity<?>> 멀티파트(
+			String filename, MediaType contentType) {
 		MultipartBodyBuilder builder = new MultipartBodyBuilder();
 		builder
 				.part("file", new ByteArrayResource("연차휴가는 15일이다.".getBytes(StandardCharsets.UTF_8)) {
 					@Override
 					public String getFilename() {
-						return "규정.txt";
+						return filename;
 					}
 				})
-				.contentType(MediaType.TEXT_PLAIN);
+				.contentType(contentType);
 		builder.part("docKey", "규정-2026");
 		builder.part("accessTags", "public");
 		return builder.build();
