@@ -8,10 +8,15 @@ import { auth } from '@/auth';
  */
 const CORE_URL = process.env.CORE_BASE_URL ?? 'http://localhost:8080';
 
-/** 인증되지 않았으면 401. 코어까지 가지 않는다. */
+/**
+ * 인증되지 않았거나 토큰 갱신에 실패했으면 401. 코어까지 가지 않는다.
+ *
+ * 갱신에 실패한 세션은 만료된 베어러를 들고 있다. 그것을 상류로 보내면 코어가 401을 줄 뿐이고,
+ * 사용자는 원인을 알 수 없다. 여기서 끊는다 (S25).
+ */
 export async function proxyToCore(path: string, init: RequestInit = {}): Promise<Response> {
 	const session = await auth();
-	if (!session?.accessToken) {
+	if (!session?.accessToken || session.error) {
 		return new Response('Unauthorized', { status: 401 });
 	}
 

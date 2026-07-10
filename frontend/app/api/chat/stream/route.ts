@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import { relayFailure } from '@/lib/upstream';
 import {
 	DONE_LINE,
 	parseSseFrame,
@@ -19,7 +20,8 @@ const CORE_URL = process.env.CORE_BASE_URL ?? 'http://localhost:8080';
 
 export async function POST(request: Request) {
 	const session = await auth();
-	if (!session?.accessToken) {
+	// 갱신에 실패한 세션은 만료된 베어러를 들고 있다. 상류로 보내지 않는다 (S25).
+	if (!session?.accessToken || session.error) {
 		return new Response('Unauthorized', { status: 401 });
 	}
 
@@ -38,8 +40,10 @@ export async function POST(request: Request) {
 		}),
 	});
 
+	// 코어의 상태를 뭉개지 않는다. 404(남의 세션) · 400(질문 길이) · 401(만료)을 클라이언트가
+	// 구분할 수 있어야 하고, 401을 봐야 재로그인을 유도할 수 있다.
 	if (!upstream.ok || !upstream.body) {
-		return new Response(`코어 응답 실패: ${upstream.status}`, { status: 502 });
+		return relayFailure(upstream);
 	}
 
 	return new Response(translate(upstream.body), { headers: UI_MESSAGE_STREAM_HEADERS });
@@ -90,8 +94,9 @@ function translate(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Ar
 				for (const part of translator.finish()) {
 					emit(toSseLine(part));
 				}
-			} catch (error) {
-				for (const part of translator.translate({ event: 'error', data: String(error) })) {
+			} catch {
+				// 내부 예외 문구를 브라우저로 흘리지 않는다 (SEC-3). 원인은 서버 로그에 있다.
+				for (const part of translator.translate({ event: 'error', data: '요청을 처리하지 못했습니다.' })) {
 					emit(toSseLine(part));
 				}
 			} finally {
