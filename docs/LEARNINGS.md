@@ -339,3 +339,10 @@
 - **대역 주의:** 서비스가 커밋 전에 `DocumentId.of(docKey)`로 조각을 만드므로, **모든 DocumentRepository 대역**(`FakeDocumentRepository`, `InMemoryDocumentRepository`)도 id를 같은 함수로 발급해야 조각의 `document_id`와 저장된 `document.id`가 맞는다. "doc-N" 임의 id를 쓰면 통합 테스트에서 `findByDocumentId`가 빈 결과를 준다. 이걸로 3건이 깨졌다 잡았다.
 - **ES bulk는 원자적이지 않다(R-11).** `response.errors()`가 참이어도 성공한 op는 이미 반영됐다. 예외만 던지면 반쪽 색인이 구 run과 공존한다. **한 번의 `indexAll`은 한 문서·한 실행의 조각만 담으므로**, `chunks.get(0)`의 `document_id`+`indexing_run_id`로 이번 run 조각을 정확히 겨냥해 롤백 삭제한 뒤 던진다. 통합 테스트는 한 조각의 `embeddingDim`을 3으로 바꿔(`EmbeddedChunk`가 벡터 길이==embeddingDim만 검사하므로 통과) ES 매핑(dims=4)을 위반시켜 부분 실패를 만들었다. 뮤테이션(롤백 제거)으로 red 확인.
 - **남은 것:** ES **완전** 장애는 안전하다(차원 검사가 upsert 전에 ES를 쳐서 먼저 실패). PG-실패-after-ES-성공(드묾, 로컬 PG)은 ES 조각만 남지만 태그로 필터돼 안전하고 다음 색인에서 정리된다. ES transport 타임아웃(R-2 잔여)은 아직 없다 — 다음.
+
+## [2026-07-11] ES 클라이언트는 기본이 무한 대기다 — 저수준으로 내려가야 타임아웃이 걸린다 (R-2)
+- **실측:** 먹통 소켓(연결만 받고 무응답)에 대해 현재 ES 클라이언트가 **200초를 넘겨도** 반환하지 않았다. Rest5의 기본 소켓 타임아웃 상수는 30000ms이지만 fluent `ElasticsearchTransportConfig` 경로에는 **적용되지 않았고**, 기본 응답 타임아웃은 `DEFAULT_RESPONSE_TIMEOUT_MILLIS = 0`(무한)이다.
+- **막다른 길:** `ElasticsearchTransportConfig.Builder`에도 그 부모 `AbstractBuilder`에도 타임아웃 훅이 없다(host/auth/ssl/compression/transportOptions뿐). `transportOptions`는 요청별 헤더·쿼리파라미터지 소켓 타임아웃이 아니다.
+- **유일한 길:** 저수준 `Rest5Client.builder(uri).setHttpClient(customAsyncClient)`로 Apache HttpClient5 비동기 클라이언트를 직접 물린다. `Rest5ClientBuilder`엔 타임아웃 setter가 없고 `setHttpClient(CloseableHttpAsyncClient)`뿐이다. 커스텀 클라이언트에 `RequestConfig.custom().setConnectTimeout(Timeout).setResponseTimeout(Timeout)`를 건다. **응답 타임아웃(responseTimeout)이 "연결은 됐는데 응답이 없다"를 잡는 핵심**이다.
+- **auth를 직접 보존해야 한다.** fluent의 `usernameAndPassword`를 버렸으므로, 커스텀 클라이언트에 `BasicCredentialsProvider`(와일드카드 `AuthScope(null, -1)` — 단일 호스트라 스코프 좁힐 필요 없음)를 세운다. ES는 security 켜지면 401 챌린지를 주므로 non-preemptive basic auth로 충분하다. 실 보안 컨테이너 테스트(`ElasticsearchAuthTest`, 401 케이스 포함)가 통과해 배선을 확인했다.
+- **검증:** 먹통 소켓 테스트를 `assertTimeoutPreemptively(8s, ...)`로 감싸(행 방지) 응답 타임아웃 500ms 안에 예외로 끝남을 확인. 뮤테이션(responseTimeout=0)으로 red 확인. 이로써 R-2의 세 외부 호출(임베딩·SSE·ES)이 모두 상한을 갖는다.

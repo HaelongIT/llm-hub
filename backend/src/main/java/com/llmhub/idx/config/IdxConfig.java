@@ -46,7 +46,9 @@ public class IdxConfig {
 		return ElasticsearchClientFactory.create(
 				properties.elasticsearchUrl(),
 				properties.elasticsearchUsername(),
-				properties.elasticsearchPassword());
+				properties.elasticsearchPassword(),
+				properties.elasticsearchConnectTimeout(),
+				properties.elasticsearchResponseTimeout());
 	}
 
 	@Bean

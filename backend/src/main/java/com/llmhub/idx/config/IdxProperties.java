@@ -16,7 +16,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     설정이다 (S15, E16). 바꾸면 <b>새 인덱스가 필요하다</b> — 매핑은 인덱스 생성 시 고정된다.
  * @param elasticsearchUrl 내부망 전용 (SEC-1).
  * @param elasticsearchUsername 운영에서는 ES 보안이 켜져 있다. 비어 있으면 인증하지 않는다.
- * @param elasticsearchPassword 비밀정보다. 코드·저장소에 넣지 않는다 (SEC-3).
+* @param elasticsearchPassword 비밀정보다. 코드·저장소에 넣지 않는다 (SEC-3).
+ * @param elasticsearchConnectTimeout ES 연결 수립 상한 (REL-1).
+ * @param elasticsearchResponseTimeout ES 응답 대기 상한. 없으면 무한 대기다 (REL-1).
  */
 @ConfigurationProperties(prefix = "llmhub.idx")
 public record IdxProperties(
@@ -28,4 +30,6 @@ public record IdxProperties(
 		String analyzer,
 		String elasticsearchUrl,
 		String elasticsearchUsername,
-		String elasticsearchPassword) {}
+		String elasticsearchPassword,
+		java.time.Duration elasticsearchConnectTimeout,
+		java.time.Duration elasticsearchResponseTimeout) {}

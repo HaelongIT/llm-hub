@@ -96,6 +96,9 @@ llmhub:
     # 운영에서는 ES 보안이 켜져 있다(SEC-1). 개발 compose는 꺼져 있어 비워 둔다.
     elasticsearch-username: ${ES_USERNAME:}
     elasticsearch-password: ${ES_PASSWORD:}
+    # ES가 연결만 받고 응답하지 않으면 무한 대기다 (REL-1). Duration 문법.
+    elasticsearch-connect-timeout: ${ES_CONNECT_TIMEOUT:5s}
+    elasticsearch-response-timeout: ${ES_RESPONSE_TIMEOUT:30s}
 
   embedding:
     # 색인과 검색이 반드시 같은 모델·차원을 써야 한다. 다르면 에러 없이 검색 품질만 붕괴한다 (S8-4).
