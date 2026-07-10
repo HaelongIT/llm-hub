@@ -53,6 +53,15 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] CORE — 부하 테스트가 `ensureExists`의 경합 버그를 잡았다
+- **상황:** "부하 시에도 블로킹 접근이 논블로킹 흐름을 막지 않는다"(docs/00)를 검증하려고 동시 요청 32개를 던짐.
+- **발견 1 (진짜 버그):** `AppUserRepository.ensureExists`가 "찾고 없으면 삽입"이었다. 같은 사용자의 첫 요청이 동시에 들어오면 **전부 "없다"고 판단하고 전부 삽입**해 unique 제약을 위반하고 500이 났다. 단일 요청 테스트로는 절대 드러나지 않는다. `insert ... on conflict (keycloak_subject) do nothing` 후 읽기로 고쳤다 — 애플리케이션에서 락을 잡는 대신 DB의 제약을 그대로 쓴다.
+- **발견 2:** BlockHound는 **모든 `park`를 블로킹으로 본다.** Jackson의 `DeserializerCache`가 타입별 역직렬화기를 처음 만들 때 `ReentrantLock`을 잡는데, 동시 요청이 몰리면 여기서 걸려 요청이 500이 된다. I/O가 아니라 일회성 워밍업 락이다. `BlockHoundIntegration`을 `META-INF/services`로 등록해 **그 지점만 좁게 허용**했다. ServiceLoader로 등록하면 `BlockHound.install()`이 어디서 불리든 적용되어 테스트 순서에 의존하지 않는다.
+- **발견 3:** 워밍업을 분리하지 않으면 무엇을 재는지 알 수 없다. 워밍업 전 2014ms, 후 **246ms**(직렬 하한 6400ms 대비 26배 겹침). 첫 측정의 88%가 JIT·Jackson 캐시·커넥션 풀·Hibernate 초기화였다.
+- **결정/해결:** `LoadIsolationTest`가 스위트의 일부다. 블로킹 검색을 200ms로 만들고 32개를 동시에 던져, 직렬이면 6400ms가 걸릴 일을 246ms에 끝내는지 본다. 측정값을 로그로 남겨 여유가 얼마나 남았는지 보이게 했다.
+- **영향:** docs/00 체크리스트, S13, PERF-1, OQ-005
+- **다음 주의:** "격리되어 있다"(스레드 이름 단언)와 "부하에서 견딘다"(오버랩 측정)는 다른 주장이다. 그리고 동시성 버그는 부하를 주기 전까지 존재하지 않는 것처럼 보인다.
+
 ## [2026-07-10] INFRA — 로컬 PostgreSQL이 5432를 가로챈다 (compose 포트 충돌, 오진하기 쉬움)
 - **상황:** compose 전체 기동 후 코어를 붙였더니 Flyway가 `password authentication failed for user "llmhub"`로 죽었다.
 - **발견:** 로컬에 PostgreSQL 18 서비스가 설치되어 있었고 `0.0.0.0:5432`를 잡고 있었다. Docker는 `[::]:5432`(IPv6)만 잡는다. 그래서 호스트에서 `localhost:5432`로 나가는 연결이 **컨테이너가 아니라 로컬 서버로 갔다.** 그쪽엔 그 비밀번호의 `llmhub` 사용자가 없다.
