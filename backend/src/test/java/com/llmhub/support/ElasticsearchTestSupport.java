@@ -49,4 +49,9 @@ public final class ElasticsearchTestSupport {
 	public static ElasticsearchClient client() {
 		return CLIENT;
 	}
+
+	/** 애플리케이션 설정에 넣을 컨테이너 주소. */
+	public static String httpUrl() {
+		return "http://" + CONTAINER.getHttpHostAddress();
+	}
 }
