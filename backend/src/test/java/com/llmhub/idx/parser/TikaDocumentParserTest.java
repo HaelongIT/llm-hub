@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.llmhub.support.MinimalPdf;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +41,16 @@ class TikaDocumentParserTest {
 		assertThat(추출).contains("연차휴가는 근로기준법에 따라 부여한다.");
 		assertThat(추출).contains("15일을 준다.");
 		assertThat(추출).as("추출 결과가 손상되면 안 된다").doesNotContain("�");
+	}
+
+	@Test
+	@DisplayName("PDF에서 본문을 추출한다")
+	void pdf에서_본문을_추출한다() {
+		byte[] pdf = MinimalPdf.withText("Annual leave is 15 days");
+
+		String 추출 = parser.extractText(pdf, "policy.pdf");
+
+		assertThat(추출).contains("Annual leave is 15 days");
 	}
 
 	@Test

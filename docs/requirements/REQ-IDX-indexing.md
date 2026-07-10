@@ -29,7 +29,7 @@ S1, S7, S8-2, S8-4, S11, S12, S15, S16, S17, S18 · 경계 E1, E6, E8, E9, E10, 
 - 조각의 `embedding_model` = document의 `embedding_model` = 설정 임베딩 모델.
 
 ## 테스트 시나리오 (TDD)
-- [ ] PDF 업로드 → 조각들이 ES에 저장되고 메타 7종 존재.
+- [x] PDF 업로드 → 조각들이 ES에 저장되고 메타 7종 존재.
 - [x] txt 업로드 → 색인 성공.
 - [ ] hwp 업로드 → hwplib 경로로 추출·색인 성공.
 - [ ] 비-ADMIN 업로드 시도 → 거부(403).

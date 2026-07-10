@@ -4,22 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.indices.AnalyzeRequest;
-import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
-import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 import com.llmhub.idx.chunking.Chunk;
+import com.llmhub.support.ElasticsearchTestSupport;
 import java.io.IOException;
-import java.net.URI;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.elasticsearch.ElasticsearchContainer;
-import org.testcontainers.images.builder.ImageFromDockerfile;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * REQ-IDX 시나리오: txt 문서를 색인하면 조각이 ES에 저장되고 메타데이터 7종이 모두 존재한다.
@@ -33,34 +25,14 @@ class ElasticsearchChunkRepositoryTest {
 	private static final EmbeddingSpec 임베딩 = new EmbeddingSpec("stub-embedding", 4);
 	private static final Instant 색인시각 = Instant.parse("2026-07-10T02:00:00Z");
 
-	private static ElasticsearchContainer 컨테이너;
 	private static ElasticsearchClient client;
 	private static ElasticsearchChunkRepository repository;
 
 	@BeforeAll
-	static void 컨테이너를_띄운다() throws Exception {
-		Path dockerfile = Path.of("..", "docker", "elasticsearch", "Dockerfile").toAbsolutePath().normalize();
-		String 이미지 = new ImageFromDockerfile("llmhub-es-nori", false).withDockerfile(dockerfile).get();
-
-		컨테이너 =
-				new ElasticsearchContainer(
-						DockerImageName.parse(이미지)
-								.asCompatibleSubstituteFor("docker.elastic.co/elasticsearch/elasticsearch"))
-						.withEnv("xpack.security.enabled", "false")
-						.withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g");
-		컨테이너.start();
-
-		Rest5Client lowLevel = Rest5Client.builder(URI.create("http://" + 컨테이너.getHttpHostAddress())).build();
-		client = new ElasticsearchClient(new Rest5ClientTransport(lowLevel, new JacksonJsonpMapper()));
+	static void 인덱스를_만든다() {
+		client = ElasticsearchTestSupport.client();
 		repository = new ElasticsearchChunkRepository(client, 인덱스);
 		repository.createIndexIfMissing(임베딩);
-	}
-
-	@AfterAll
-	static void 컨테이너를_내린다() {
-		if (컨테이너 != null) {
-			컨테이너.stop();
-		}
 	}
 
 	@Test
