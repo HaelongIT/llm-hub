@@ -6,6 +6,7 @@ import com.llmhub.chat.ChatHistoryRepository;
 import com.llmhub.chat.ChatService;
 import com.llmhub.chat.Message;
 import com.llmhub.common.Blocking;
+import com.llmhub.common.TraceId;
 import com.llmhub.common.user.AppUserRepository;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * 채팅 스트리밍 엔드포인트.
@@ -47,12 +49,12 @@ public class ChatController {
 	public Flux<ServerSentEvent<Object>> stream(
 			@RequestBody ChatStreamRequest request, @AuthenticationPrincipal Jwt jwt) {
 
-		String traceId = UUID.randomUUID().toString();
 		String requesterId = jwt.getSubject();
 
-		return AccessTags.current()
+		// 추적 ID는 필터가 이미 발급했다. 여기서 새로 만들면 응답 헤더의 값과 감사 기록의 값이 갈린다 (REL-3).
+		return Mono.zip(TraceId.current(), AccessTags.current())
 				.flatMapMany(
-						tags ->
+						context ->
 								// 세션 확보와 이력 조회는 블로킹이다.
 								Blocking.call(() -> sessionOf(request, requesterId))
 										.flatMapMany(
@@ -61,9 +63,9 @@ public class ChatController {
 																session.sessionId(),
 																requesterId,
 																request.question(),
-																tags,
+																context.getT2(),
 																session.history(),
-																traceId)))
+																context.getT1())))
 				.map(ChatController::toServerSentEvent);
 	}
 

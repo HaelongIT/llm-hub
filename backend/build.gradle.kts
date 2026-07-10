@@ -43,6 +43,10 @@ dependencies {
 	// MVC를 자동설정한다. 절대 추가하지 말 것 (S13, PERF-1).
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 
+	// 운영 — 헬스 엔드포인트. 컨테이너 오케스트레이터가 기동 완료를 판정한다 (REL-5).
+	// 애플리케이션 포트가 아니라 관리 포트에 실린다. 자세한 이유는 application.yml (SEC-1).
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+
 	// AUTH — Keycloak OIDC. 리소스 서버는 JWT를 검증만 하고 로그인 플로우를 수행하지 않는다 (S25).
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")

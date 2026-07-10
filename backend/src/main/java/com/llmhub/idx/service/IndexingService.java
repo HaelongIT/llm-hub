@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.IntStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 색인 파이프라인: 검증 → 원본 보관 → 추출 → 청킹 → 임베딩 → 저장.
@@ -28,6 +30,8 @@ import java.util.stream.IntStream;
  * 조각이 구버전과 함께 검색되어 중복 근거를 만드는 것을 막는다 (S17 × S8-3).
  */
 public final class IndexingService {
+
+	private static final Logger log = LoggerFactory.getLogger(IndexingService.class);
 
 	private final UploadValidator validator;
 	private final FileStorage fileStorage;
@@ -62,12 +66,16 @@ public final class IndexingService {
 		validator.validate(request.filename(), request.contentType(), request.content().length);
 
 		String extension = extensionOf(request.filename());
+		// 문서 본문은 로그에 남기지 않는다 (SEC-3). 식별자와 크기만 남긴다.
+		log.info("색인 시작 docKey={} ext={} bytes={}", request.docKey(), extension, request.content().length);
+
 		DocumentParser parser = parserFor(extension);
 		String text = parser.extractText(request.content(), request.filename());
 		List<Chunk> chunks = chunkingStrategy.chunk(text);
 		if (chunks.isEmpty()) {
 			throw new IllegalStateException("색인할 조각이 없다: " + request.filename());
 		}
+		log.debug("추출·청킹 완료 docKey={} textChars={} chunks={}", request.docKey(), text.length(), chunks.size());
 
 		EmbeddingSpec spec = embeddingClient.spec();
 		// ES에 쓰기 전에 임베딩을 전량 끝낸다. 여기서 실패하면 아무것도 쓰이지 않는다.
@@ -76,6 +84,7 @@ public final class IndexingService {
 			throw new IllegalStateException(
 					"임베딩 개수가 조각 개수와 다르다: %d != %d".formatted(vectors.size(), chunks.size()));
 		}
+		log.debug("임베딩 완료 docKey={} model={} vectors={}", request.docKey(), spec.model(), vectors.size());
 
 		String storageKey = fileStorage.store(request.filename(), request.content());
 		DocumentRecord document =
@@ -101,6 +110,12 @@ public final class IndexingService {
 		// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
 		chunkRepository.deleteStaleChunks(document.id(), indexingRunId);
 
+		log.info(
+				"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",
+				request.docKey(),
+				document.id(),
+				indexingRunId,
+				indexed.size());
 		return new IndexResult(document.id(), indexingRunId, indexed.size());
 	}
 

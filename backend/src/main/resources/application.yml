@@ -39,6 +39,28 @@ spring:
           # 뜨지 않는다. jwk-set-uri는 첫 검증 때 지연 조회한다.
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/llmhub/protocol/openid-connect/certs}
 
+logging:
+  pattern:
+    # 격리 스케줄러에서 도는 색인·검색·저장 로그에 추적 ID를 붙인다 (REL-3).
+    # Blocking 헬퍼가 요청 컨텍스트의 값을 MDC로 옮긴다. 리액티브 스레드의 로그는
+    # MDC가 비어 있으므로 traceId를 인자로 직접 남긴다(ChatService).
+    correlation: "[%X{traceId:-}] "
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 헬스 외에는 아무것도 열지 않는다.
+        include: health
+  endpoint:
+    health:
+      # 의존 컴포넌트의 상태를 밖으로 흘리지 않는다. UP/DOWN만.
+      show-details: never
+  # server.port는 여기서 정하지 않는다. 애플리케이션 포트에 헬스를 열면 "모든 API는 인증
+  # 필요"(SEC-1)가 깨진다. 운영 compose가 MANAGEMENT_SERVER_PORT로 별도 포트를 지정하고,
+  # 그 포트는 호스트에 publish하지 않는다 — 컨테이너 헬스체크만 안에서 접근한다.
+  # 설정하지 않으면 액추에이터는 애플리케이션 포트에 남고, 그때는 인증이 요구된다.
+
 llmhub:
   auth:
     # 역할→접근 태그 매핑 (S3, E4). 교체해도 재색인이 필요 없다.

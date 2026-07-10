@@ -4,6 +4,8 @@ import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.common.embedding.EmbeddingSpec;
 import java.util.List;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 접근 태그로 필터된 하이브리드 검색을 수행하고 근거(sources)를 만든다.
@@ -18,6 +20,8 @@ import java.util.Set;
  * <p><b>블로킹이다.</b> 리액티브 흐름에서는 {@code Blocking.call}로 격리해 부른다 (S13).
  */
 public final class SearchService {
+
+	private static final Logger log = LoggerFactory.getLogger(SearchService.class);
 
 	private final QueryBuilder queryBuilder;
 	private final EmbeddingClient embeddingClient;
@@ -40,11 +44,22 @@ public final class SearchService {
 	 */
 	public List<Source> search(String question, Set<String> accessTags) {
 		if (accessTags.isEmpty()) {
+			log.debug("접근 태그가 없어 검색을 건너뛴다. 인증은 됐지만 볼 수 있는 조각이 없다");
 			return List.of();
 		}
 		String query = queryBuilder.build(question);
 		float[] queryVector = embeddingClient.embed(List.of(query)).get(0);
-		return repository.search(query, queryVector, accessTags, topK);
+		List<Source> sources = repository.search(query, queryVector, accessTags, topK);
+
+		// 질문 원문은 로그에 남기지 않는다 (SEC-3). 근거를 못 찾은 원인을 좁히는 데 필요한 것은
+		// 태그·topK·길이·결과 수다.
+		log.info(
+				"검색 완료 tags={} topK={} questionChars={} hits={}",
+				accessTags.stream().sorted().toList(),
+				topK,
+				question.length(),
+				sources.size());
+		return sources;
 	}
 
 	/** 검색에 쓰는 임베딩 모델. 색인과 같아야 한다 (S8-4). */

@@ -86,17 +86,21 @@ public final class ChatService {
 
 		return Blocking.call(() -> searchService.search(question, accessTags))
 				.flatMapMany(
-						sources ->
-								Flux.concat(
-												// 근거 먼저. LLM이 한 글자도 내기 전에 확정된다 (S6).
-												Mono.<ChatEvent>just(new ChatEvent.Sources(sources)),
-												answerStream(question, history, sources, answer),
-												Mono.<ChatEvent>just(new ChatEvent.Done(traceId)))
-										// 스트림이 성공적으로 끝난 뒤에만 저장한다. 실패한 대화는 이력으로 남기지 않는다.
-										.doOnComplete(
-												() ->
-														persist(
-																sessionId, requesterId, question, answer.toString(), sources, traceId)))
+						sources -> {
+							// 질문·응답 원문은 로그에 남기지 않는다 (SEC-3). 전문은 감사 로그가 맡는다 (S5, E5).
+							log.info("LLM 호출 시작 traceId={} sources={} questionChars={}", traceId, sources.size(), question.length());
+							return Flux.concat(
+											// 근거 먼저. LLM이 한 글자도 내기 전에 확정된다 (S6).
+											Mono.<ChatEvent>just(new ChatEvent.Sources(sources)),
+											answerStream(question, history, sources, answer),
+											Mono.<ChatEvent>just(new ChatEvent.Done(traceId)))
+									// 스트림이 성공적으로 끝난 뒤에만 저장한다. 실패한 대화는 이력으로 남기지 않는다.
+									.doOnComplete(
+											() -> {
+												log.info("응답 완료 traceId={} answerChars={}", traceId, answer.length());
+												persist(sessionId, requesterId, question, answer.toString(), sources, traceId);
+											});
+						})
 				.onErrorResume(
 						error -> {
 							// 깨끗한 실패. 자동 우회·페일오버 없이 error 이벤트로 스트림을 닫는다 (S8-3).

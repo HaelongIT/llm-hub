@@ -113,9 +113,21 @@ services:
       AUDIT_SCOPE: ${AUDIT_SCOPE:-FULL}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       FILE_STORAGE_ROOT: /app/data/documents
+      # 헬스 엔드포인트를 애플리케이션 포트에서 떼어낸다. 이 포트는 publish하지 않으므로
+      # 컨테이너 밖에서 보이지 않고, 8080의 API 표면은 전부 인증을 요구한다 (SEC-1, REL-5).
+      MANAGEMENT_SERVER_PORT: 9090
     volumes:
       # 업로드 원본. 재색인은 여기서 다시 읽는다 (S16).
       - ${DATA_ROOT:-./data}/documents:/app/data/documents
+    healthcheck:
+      # localhost가 아니라 127.0.0.1이다. 컨테이너 안에서 localhost는 ::1로 먼저 풀리는데
+      # 서버는 IPv4에만 바인딩되어 있어 연결이 거부된다.
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9090/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      # 코어는 Flyway 마이그레이션 뒤에 뜬다. 첫 기동에 시간이 걸리므로 start_period를 넉넉히 준다.
+      start_period: 60s
+      retries: 10
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +149,17 @@ services:
     # 유일하게 외부로 나가는 포트다 (SEC-1).
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      # node:alpine에는 curl이 없다. wget은 BusyBox 내장이다.
+      # localhost는 ::1로 먼저 풀리고 Next는 IPv4에만 바인딩한다 — 127.0.0.1을 쓴다.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
     depends_on:
-      - backend
-      - keycloak
+      # 코어가 응답하기 전에 BFF가 뜨면 첫 사용자가 502를 본다 (REL-5).
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
