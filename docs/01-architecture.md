@@ -33,7 +33,8 @@ CLIENT  →  EDGE  →  CORE  →  DATA·RAG  →  INFRA
 ### 04 · DATA · RAG
 - **PostgreSQL**: 사용자·세션·이력·감사(JPA/Hibernate, Flyway). 블로킹 접근은 전용 계층에 격리.
 - **Elasticsearch**: 조각(dense_vector cosine + BM25 하이브리드, nori 분석기), 원문 텍스트, 메타데이터.
-- **Spring AI ETL**: Tika/hwplib 추출 → TokenTextSplitter(토큰 청킹) → EmbeddingModel(게이트웨이 경유, 모델 고정).
+- **Spring AI ETL**: Tika/hwplib 추출 → `ChunkingStrategy`(토큰 크기 기준, **글자 경계 안전**) → EmbeddingModel(게이트웨이 경유, 모델 고정).
+  - Spring AI의 `TokenTextSplitter`는 쓰지 않는다. 바이트 수준 BPE 토큰 목록을 잘라 디코딩하므로, 한 글자가 여러 토큰에 걸치는 한국어에서 조각 경계가 글자 중간을 잘라 U+FFFD 치환 문자를 남긴다. 토큰은 크기를 재는 데만 쓰고(`TokenCountEstimator`), 자르는 위치는 문장→단어→코드포인트 순으로 찾는다.
 - 원본 파일: 로컬 파일시스템 볼륨(저장 백엔드 교체 가능).
 
 ### 05 · INFRA (LiteLLM)

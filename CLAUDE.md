@@ -29,7 +29,7 @@
 | Edge | Spring Security 필터체인 · Keycloak (OIDC) |
 | Core | Spring Boot **WebFlux** · Spring AI ChatClient |
 | Data | PostgreSQL (JPA/Hibernate · Flyway) · Elasticsearch (dense_vector + BM25, nori 분석기) |
-| ETL | Apache Tika · hwplib · TokenTextSplitter · EmbeddingModel(게이트웨이 경유) |
+| ETL | Apache Tika · hwplib · 토큰 크기 기준 청킹(글자 경계 안전) · EmbeddingModel(게이트웨이 경유) |
 | Infra | LiteLLM Gateway · Ollama / OpenAI · Anthropic · Google |
 
 - 스택 변경이 필요하다고 판단되면 **코드를 짜지 말고 먼저 사람에게 확인**한다.
