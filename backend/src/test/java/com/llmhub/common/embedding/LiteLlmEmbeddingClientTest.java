@@ -1,9 +1,9 @@
-package com.llmhub.idx.embedding;
+package com.llmhub.common.embedding;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;

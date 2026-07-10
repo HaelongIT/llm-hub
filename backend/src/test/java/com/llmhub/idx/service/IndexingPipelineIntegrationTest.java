@@ -3,9 +3,9 @@ package com.llmhub.idx.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.llmhub.idx.chunking.TokenChunkingStrategy;
-import com.llmhub.idx.embedding.EmbeddingClient;
+import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.idx.index.ElasticsearchChunkRepository;
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.idx.index.IndexedChunk;
 import com.llmhub.support.MinimalHwp;
 import com.llmhub.support.MinimalPdf;

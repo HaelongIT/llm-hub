@@ -1,7 +1,6 @@
-package com.llmhub.idx.embedding;
+package com.llmhub.common.embedding;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.llmhub.idx.index.EmbeddingSpec;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.MediaType;

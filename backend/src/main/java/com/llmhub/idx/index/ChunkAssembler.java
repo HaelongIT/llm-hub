@@ -1,5 +1,6 @@
 package com.llmhub.idx.index;
 
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.idx.chunking.Chunk;
 import java.time.Instant;
 import java.util.List;

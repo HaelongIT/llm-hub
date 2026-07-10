@@ -2,12 +2,12 @@ package com.llmhub.idx.service;
 
 import com.llmhub.idx.chunking.Chunk;
 import com.llmhub.idx.chunking.ChunkingStrategy;
-import com.llmhub.idx.embedding.EmbeddingClient;
+import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.idx.index.ChunkAssembler;
 import com.llmhub.idx.index.ChunkRepository;
 import com.llmhub.idx.index.DocumentMetadata;
 import com.llmhub.idx.index.EmbeddedChunk;
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.idx.index.IndexedChunk;
 import com.llmhub.idx.parser.DocumentParser;
 import com.llmhub.idx.storage.FileStorage;

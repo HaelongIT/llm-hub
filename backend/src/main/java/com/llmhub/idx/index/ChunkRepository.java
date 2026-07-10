@@ -1,5 +1,6 @@
 package com.llmhub.idx.index;
 
+import com.llmhub.common.embedding.EmbeddingSpec;
 import java.util.List;
 
 /**

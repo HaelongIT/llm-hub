@@ -1,4 +1,4 @@
-package com.llmhub.idx.index;
+package com.llmhub.common.embedding;
 
 /**
  * 색인에 쓴 임베딩 모델과 차원 (설정값으로 고정, S8-4).

@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.llmhub.idx.chunking.TokenChunkingStrategy;
-import com.llmhub.idx.embedding.EmbeddingClient;
+import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.idx.index.EmbeddedChunk;
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.idx.index.IndexedChunk;
 import com.llmhub.idx.parser.TikaDocumentParser;
 import com.llmhub.idx.storage.LocalFileStorage;

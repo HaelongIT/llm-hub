@@ -1,5 +1,6 @@
 package com.llmhub.idx.index;
 
+import com.llmhub.common.embedding.EmbeddingSpec;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorSimilarity;

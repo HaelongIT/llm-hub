@@ -2,10 +2,10 @@ package com.llmhub.idx.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.llmhub.idx.embedding.EmbeddingClient;
+import com.llmhub.common.embedding.EmbeddingClient;
 import com.llmhub.idx.index.ChunkRepository;
 import com.llmhub.idx.index.EmbeddedChunk;
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.idx.index.IndexedChunk;
 import com.llmhub.support.PostgresInitializer;
 import java.nio.charset.StandardCharsets;

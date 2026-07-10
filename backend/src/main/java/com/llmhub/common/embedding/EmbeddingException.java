@@ -1,4 +1,4 @@
-package com.llmhub.idx.embedding;
+package com.llmhub.common.embedding;
 
 /**
  * 임베딩 게이트웨이 호출이 실패했다.

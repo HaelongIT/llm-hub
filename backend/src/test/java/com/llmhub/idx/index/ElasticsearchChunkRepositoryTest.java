@@ -1,5 +1,6 @@
 package com.llmhub.idx.index;
 
+import com.llmhub.common.embedding.EmbeddingSpec;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;

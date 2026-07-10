@@ -7,7 +7,7 @@ import com.llmhub.idx.index.ChunkAssembler;
 import com.llmhub.idx.index.DocumentMetadata;
 import com.llmhub.idx.index.ElasticsearchChunkRepository;
 import com.llmhub.idx.index.EmbeddedChunk;
-import com.llmhub.idx.index.EmbeddingSpec;
+import com.llmhub.common.embedding.EmbeddingSpec;
 import com.llmhub.support.ElasticsearchTestSupport;
 import java.time.Instant;
 import java.util.List;
