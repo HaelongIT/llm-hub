@@ -26,3 +26,8 @@ frontend/node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Next.js
+frontend/.next/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo

@@ -53,6 +53,14 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] CLIENT — `useChat`은 `body`를 받지 않는다. transport가 요청을 만든다
+- **상황:** BFF를 만들고 `useChat`으로 `sessionId`를 함께 보내려 함.
+- **발견:** AI SDK v5부터 `useChat({ body })`는 없다. `new DefaultChatTransport({ api, body })`를 만들어 `useChat({ transport })`로 넘긴다. **타입 검사가 이 추측을 잡았다.** LEARNINGS에 "v5에서 transport 아키텍처로 바뀌었다"고 적어뒀는데도 코드에서는 옛 API를 썼다 — 기록만으로는 부족하고 타입이 막아야 한다.
+- **발견 2:** Node 22의 `--experimental-strip-types`는 **생성자 파라미터 프로퍼티**(`constructor(private readonly x: T)`)를 지원하지 않는다. 타입을 지우기만 하고 코드를 생성하지 않기 때문이다. `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. 명시적 필드 대입으로 쓴다.
+- **결정/해결:** BFF 번역기를 순수 모듈로 분리해 Node 내장 `node:test`로 검증한다. vitest·jest를 의존성에 추가하지 않았다. 파트 형식(`text-start`/`text-delta`/`text-end`/`start`/`finish`/`error`/`data-*`)과 헤더(`x-vercel-ai-ui-message-stream: v1`)는 설치된 `ai@7.0.19`의 타입 정의에서 직접 확인했다.
+- **영향:** S6, docs/01, REQ-CHAT
+- **다음 주의:** SSE 청크 경계는 프레임 중간을 자른다. 버퍼에 남긴 마지막 조각을 다음 청크와 이어붙이지 않으면 토큰이 통째로 사라진다. 이 케이스를 테스트로 재현해 뒀다.
+
 ## [2026-07-10] CHAT — Spring AI openai 스타터는 오디오·이미지 모델까지 자동설정한다
 - **상황:** `ChatClient`를 쓰려고 `spring-ai-starter-model-openai`를 추가.
 - **발견:** 스타터가 chat뿐 아니라 **audio speech·transcription·image·moderation 모델까지 자동설정**하고, 각각 `spring.ai.openai.api-key`를 요구한다. 키가 없으면 `openAiAudioSpeechModel` 빈 생성에서 터져 **애플리케이션 컨텍스트가 아예 뜨지 않는다.** 웹 테스트 18개가 한꺼번에 죽었다.

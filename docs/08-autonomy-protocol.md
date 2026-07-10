@@ -147,6 +147,22 @@ surface된 항목마다 이 순서로 판정한다. 결과는 반드시 `HALT` /
 
 **Spring AI 2.0은 쓰지 않는다** — Spring Boot 4를 요구한다(`docs/LEARNINGS.md` 참조).
 
+### 프론트엔드 (npm)
+
+npm 레지스트리에서 실재를 확인한 것들이다. `CLAUDE.md` §2가 스택으로 못박은 것과 일치한다.
+
+| 패키지 | 버전 |
+|---|---|
+| `next` | `16.2.10` |
+| `react`, `react-dom` | `19.2.7` |
+| `ai` | `7.0.19` |
+| `@ai-sdk/react` | `4.0.20` |
+| `next-auth` | `5.0.0-beta.31` (Auth.js — App Router 네이티브) |
+| `zustand` | `5.0.14` |
+| `typescript` | `7.0.2` |
+
+`next-auth`는 v5 beta다. v4는 안정적이지만 App Router에서 우회책이 필요하다. beta라 API가 바뀔 수 있음을 감수한다.
+
 ---
 
 ## F. 문서 편집 권한
