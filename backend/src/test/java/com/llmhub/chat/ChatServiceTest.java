@@ -44,7 +44,7 @@ class ChatServiceTest {
 		return new ChatService(
 				search,
 				ChatClient.builder(model).build(),
-				new RecentTurnsContextAssembler(2),
+				new RecentTurnsContextAssembler(2, 100_000),
 				저장하지_않는_이력(),
 				record -> {},
 				com.llmhub.audit.AuditScope.FULL);
@@ -168,6 +168,26 @@ class ChatServiceTest {
 				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).singleElement().isInstanceOf(ChatEvent.Error.class);
+	}
+
+	@Test
+	@DisplayName("error 이벤트는 내부 예외 문구를 싣지 않고 추적 ID를 싣는다")
+	void error_이벤트가_내부_예외를_흘리지_않는다() {
+		// HTTP 에러 본문에서는 예외 메시지를 막아뒀다(server.error.include-message를 켜지 않는다).
+		// SSE error 이벤트만 열려 있으면 ES·게이트웨이의 내부 문구가 브라우저로 나간다.
+		ChatModel 고장난_모델 =
+				new 대역_모델(prompt -> Flux.error(new IllegalStateException("ES 인덱스 llmhub-chunks 접근 거부: user=elastic")));
+		ChatService service = 서비스(검색_대역(검색결과), 고장난_모델);
+
+		List<ChatEvent> events =
+				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+
+		ChatEvent.Error 오류 = (ChatEvent.Error) events.get(events.size() - 1);
+		assertThat(오류.message())
+				.as("내부 문구는 로그에만 남는다. 사용자에게는 추적 ID를 준다 (SEC-3)")
+				.doesNotContain("llmhub-chunks")
+				.doesNotContain("elastic")
+				.contains("trace-1");
 	}
 
 	@Test

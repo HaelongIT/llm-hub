@@ -39,6 +39,9 @@ public final class ChatService {
 	private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 	private static final ObjectMapper JSON = new ObjectMapper();
 
+	/** 사용자에게 보이는 유일한 실패 문구. 원인은 추적 ID로 로그에서 찾는다 (SEC-3, REL-3). */
+	private static final String USER_FACING_ERROR = "요청을 처리하지 못했습니다. 추적 ID: %s";
+
 	private static final String SYSTEM_PROMPT =
 			"""
 			당신은 사내 문서 검색 결과를 근거로 답하는 도우미입니다.
@@ -104,8 +107,11 @@ public final class ChatService {
 				.onErrorResume(
 						error -> {
 							// 깨끗한 실패. 자동 우회·페일오버 없이 error 이벤트로 스트림을 닫는다 (S8-3).
+							//
+							// 예외 문구를 그대로 실어 보내지 않는다. ES 인덱스명·게이트웨이 주소 같은 내부 사정이
+							// 브라우저로 나간다 (SEC-3). 원인은 로그에 있고, 사용자는 추적 ID로 신고한다.
 							log.error("채팅 스트림 실패 traceId={}", traceId, error);
-							return Flux.just(new ChatEvent.Error(error.getMessage()));
+							return Flux.just(new ChatEvent.Error(USER_FACING_ERROR.formatted(traceId)));
 						});
 	}
 
