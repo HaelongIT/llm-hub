@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: llmhub
+  main:
+    # WebFlux(Netty)를 명시적으로 강제한다.
+    # 서블릿 스타터가 클래스패스에 섞여 들어오면 Spring Boot는 조용히 MVC로
+    # 자동설정하고, 그 순간 S13(리액티브-블로킹 격리)의 전제가 무너진다.
+    web-application-type: reactive
