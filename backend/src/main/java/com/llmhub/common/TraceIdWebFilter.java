@@ -21,6 +21,12 @@ public final class TraceIdWebFilter implements WebFilter {
 		String traceId = UUID.randomUUID().toString();
 		// 응답이 커밋되기 전이다. 스트리밍 응답도 첫 바이트를 쓰기 전에 헤더가 확정된다.
 		exchange.getResponse().getHeaders().set(TraceId.HEADER, traceId);
+
+		// 500·404를 찍는 것은 우리 코드가 아니라 스프링의 에러 핸들러이고, 그 로그 줄은 MDC가 아니라
+		// exchange의 로그 접두사를 쓴다. 여기를 바꾸지 않으면 실패한 요청만 추적이 끊긴다 — 하필
+		// 추적이 가장 필요한 쪽이다. getLogPrefix()는 이 속성을 매번 다시 읽는다.
+		exchange.getAttributes().put(ServerWebExchange.LOG_ID_ATTRIBUTE, traceId);
+
 		return chain.filter(exchange).contextWrite(ctx -> TraceId.with(ctx, traceId));
 	}
 }

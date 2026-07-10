@@ -56,6 +56,22 @@ class TraceIdWebFilterTest {
 	}
 
 	@Test
+	@DisplayName("프레임워크가 찍는 로그 접두사도 추적 ID를 쓴다")
+	void 프레임워크_로그도_같은_추적_ID를_쓴다() {
+		// 500·404를 찍는 것은 우리 코드가 아니라 스프링의 에러 핸들러다. 그 로그 줄은
+		// exchange.getLogPrefix()를 쓰고, MDC를 보지 않는다. 여기를 바꾸지 않으면 사용자가
+		// 응답 헤더의 추적 ID를 들고 와도 실패한 요청을 로그에서 찾을 수 없다 (REL-3).
+		MockServerWebExchange exchange = 요청();
+
+		StepVerifier.create(filter.filter(exchange, e -> Mono.empty())).verifyComplete();
+
+		String 발급된_ID = exchange.getResponse().getHeaders().getFirst(TraceId.HEADER);
+		assertThat(exchange.getLogPrefix())
+				.as("추적이 가장 필요한 것은 실패한 요청이다")
+				.contains(발급된_ID);
+	}
+
+	@Test
 	@DisplayName("클라이언트가 보낸 X-Trace-Id는 무시된다")
 	void 인바운드_헤더를_신뢰하지_않는다() {
 		MockServerWebExchange exchange =
