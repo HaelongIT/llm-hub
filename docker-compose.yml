@@ -83,6 +83,9 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_API_KEY: ${LITELLM_API_KEY}
+      # 뒷단 실제 모델. 배포마다 다르므로 파일에 박지 않는다 (E7).
+      LITELLM_CHAT_BACKEND: ${LITELLM_CHAT_BACKEND:-ollama/qwen3:8b}
+      LITELLM_EMBEDDING_BACKEND: ${LITELLM_EMBEDDING_BACKEND:-ollama/bge-m3}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     volumes:
       - ./docker/litellm/config.yaml:/app/config.yaml:ro

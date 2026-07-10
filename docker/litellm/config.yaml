@@ -3,17 +3,18 @@
 # 코어에 특정 모델을 하드코딩하지 않으므로, 모델 교체는 이 파일과 .env 에서 끝난다.
 #
 # 아래 model_name 은 .env 의 CHAT_MODEL / EMBEDDING_MODEL 과 일치해야 한다.
-# 임베딩 모델을 바꾸면 재색인이 필요하다 (S8-4, E9).
+# 뒷단 실제 모델은 배포마다 다르므로 환경변수로 뺀다(OLLAMA_CHAT_MODEL 등).
+# 임베딩 모델을 바꾸면 재색인이 필요하고, 차원이 바뀌면 새 ES 인덱스가 필요하다 (S8-4, E9).
 
 model_list:
   - model_name: placeholder-chat-model
     litellm_params:
-      model: ollama/llama3.1
+      model: os.environ/LITELLM_CHAT_BACKEND
       api_base: os.environ/OLLAMA_BASE_URL
 
   - model_name: placeholder-embedding-model
     litellm_params:
-      model: ollama/bge-m3
+      model: os.environ/LITELLM_EMBEDDING_BACKEND
       api_base: os.environ/OLLAMA_BASE_URL
 
 general_settings:
