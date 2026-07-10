@@ -47,8 +47,9 @@ dependencies {
 	// spring-ai-core는 없어졌고 1.1.x에서는 spring-ai-commons에 있다.
 	implementation("org.springframework.ai:spring-ai-commons")
 
-	// IDX — 문서 추출(Tika). hwp는 별도 어댑터(hwplib)가 맡는다 (S8-2, E8).
+	// IDX — 문서 추출. Tika 기본 포맷과 hwp를 각각 다른 어댑터가 맡는다 (S8-2, E8).
 	implementation("org.springframework.ai:spring-ai-tika-document-reader")
+	implementation("kr.dogfoot:hwplib:1.1.10")
 
 	// IDX/SEARCH — ES 하이브리드 검색은 Spring AI의 VectorStore(kNN 전용)로 불가능하므로
 	// ES Java 클라이언트를 직접 쓴다. 클라이언트 major.minor를 서버와 일치시킨다.

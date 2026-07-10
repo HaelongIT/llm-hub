@@ -31,7 +31,7 @@ S1, S7, S8-2, S8-4, S11, S12, S15, S16, S17, S18 · 경계 E1, E6, E8, E9, E10, 
 ## 테스트 시나리오 (TDD)
 - [x] PDF 업로드 → 조각들이 ES에 저장되고 메타 7종 존재.
 - [x] txt 업로드 → 색인 성공.
-- [ ] hwp 업로드 → hwplib 경로로 추출·색인 성공.
+- [x] hwp 업로드 → hwplib 경로로 추출·색인 성공.
 - [ ] 비-ADMIN 업로드 시도 → 거부(403).
 - [x] 허용 안 된 확장자 → 거부.
 - [x] 조각 `access_tags`가 document `access_tags`와 일치.

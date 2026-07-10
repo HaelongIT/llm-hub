@@ -7,7 +7,9 @@ import com.llmhub.idx.embedding.EmbeddingClient;
 import com.llmhub.idx.index.ElasticsearchChunkRepository;
 import com.llmhub.idx.index.EmbeddingSpec;
 import com.llmhub.idx.index.IndexedChunk;
+import com.llmhub.support.MinimalHwp;
 import com.llmhub.support.MinimalPdf;
+import com.llmhub.idx.parser.HwpDocumentParser;
 import com.llmhub.idx.parser.TikaDocumentParser;
 import com.llmhub.idx.storage.LocalFileStorage;
 import com.llmhub.idx.upload.UploadValidator;
@@ -68,6 +70,38 @@ class IndexingPipelineIntegrationTest {
 			assertThat(c.indexingRunId()).isEqualTo(결과.indexingRunId());
 		});
 		assertThat(저장된_조각).extracting(IndexedChunk::text).anySatisfy(t -> assertThat(t).contains("Annual leave"));
+	}
+
+	@Test
+	@DisplayName("hwp를 색인하면 hwplib 경로로 추출되어 한국어 조각이 ES에 저장된다")
+	void hwp를_색인하면_hwplib_경로로_저장된다(@TempDir Path root) {
+		var chunkRepository =
+				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-pipeline");
+		var service =
+				new IndexingService(
+						new UploadValidator(Map.of("hwp", Set.of("application/x-hwp")), 1_000_000),
+						new LocalFileStorage(root),
+						// 파서를 하나 더 넣을 뿐, 파이프라인 구조는 그대로다 (E8)
+						List.of(new TikaDocumentParser(), new HwpDocumentParser()),
+						new TokenChunkingStrategy(20),
+						new StubEmbeddingClient(),
+						chunkRepository,
+						new InMemoryDocumentRepository(),
+						Clock.fixed(고정시각, ZoneOffset.UTC));
+
+		byte[] hwp = MinimalHwp.withText("연차휴가는 근로기준법에 따라 부여한다.");
+		IndexResult 결과 =
+				service.index(
+						new IndexRequest("hwp-정책", "인사규정.hwp", "application/x-hwp", hwp, List.of("restricted")));
+
+		List<IndexedChunk> 저장된_조각 = chunkRepository.findByDocumentId(결과.documentId());
+
+		assertThat(저장된_조각).isNotEmpty();
+		assertThat(저장된_조각).extracting(IndexedChunk::text).anySatisfy(t -> {
+			assertThat(t).contains("연차휴가는");
+			assertThat(t).as("한국어가 손상되면 안 된다").doesNotContain("�");
+		});
+		assertThat(저장된_조각).allSatisfy(c -> assertThat(c.accessTags()).containsExactly("restricted"));
 	}
 
 	private record StubEmbeddingClient() implements EmbeddingClient {
