@@ -154,11 +154,19 @@ class IndexingServiceTest {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
 		service.index(요청("규정", "규정.txt", List.of("public")));
 
+		// 첫 색인이 남긴 흔적을 지운다. 여기서부터가 교체다.
+		//
+		// 이걸 지우지 않고 containsSubsequence로 보면 순서를 뒤집어도 통과한다:
+		// 역순 기록 [deleteStale, indexAll, deleteStale, indexAll] 안에서도
+		// 1번 indexAll 뒤에 2번 deleteStale이 있기 때문이다. 한 번의 색인만 보고
+		// 정확한 순서를 단언해야 S17이 강제된다.
+		chunks.순서.clear();
+
 		service.index(요청("규정", "규정.txt", List.of("public")));
 
 		assertThat(chunks.순서)
 				.as("삭제가 먼저 일어나면 색인 실패 시 문서가 증발한다 (S17 x S8-3)")
-				.containsSubsequence("indexAll", "deleteStale");
+				.containsExactly("indexAll", "deleteStale");
 	}
 
 	@Test
