@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import com.llmhub.support.PostgresInitializer;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.boot.web.embedded.netty.NettyWebServer;
 import org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
@@ -18,6 +20,7 @@ import org.springframework.context.ApplicationContext;
  * 이 테스트는 그 사고를 기동 시점에 잡는다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ContextConfiguration(initializers = PostgresInitializer.class)
 class ReactiveStackTest {
 
 	@org.springframework.beans.factory.annotation.Autowired

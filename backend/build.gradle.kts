@@ -47,6 +47,12 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
 
+	// 데이터 — PG는 사용자·세션·이력·감사(S9). 블로킹 JPA는 전용 리포지토리 계층에 격리한다(S13, E12).
+	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+	implementation("org.flywaydb:flyway-core")
+	implementation("org.flywaydb:flyway-database-postgresql")
+	runtimeOnly("org.postgresql:postgresql")
+
 	// IDX — 토큰 계수(TokenCountEstimator). 자동설정을 끌고 오는 스타터가 아니라 순수 라이브러리다.
 	// spring-ai-core는 없어졌고 1.1.x에서는 spring-ai-commons에 있다.
 	implementation("org.springframework.ai:spring-ai-commons")
@@ -65,6 +71,7 @@ dependencies {
 	testImplementation("com.tngtech.archunit:archunit-junit5:1.4.2")
 	testImplementation(platform("org.testcontainers:testcontainers-bom:1.21.4"))
 	testImplementation("org.testcontainers:elasticsearch")
+	testImplementation("org.testcontainers:postgresql")
 	testImplementation("org.testcontainers:junit-jupiter")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

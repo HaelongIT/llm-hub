@@ -7,7 +7,9 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.llmhub.support.PostgresInitializer;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -29,6 +31,7 @@ import reactor.core.publisher.Mono;
  * 하는 프로브 엔드포인트가 <b>재계산 없이</b> 태그를 읽을 수 있는지 확인한다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ContextConfiguration(initializers = PostgresInitializer.class)
 @org.springframework.context.annotation.Import(AccessTagGateTest.프로브.class)
 class AccessTagGateTest {
 

@@ -7,6 +7,17 @@ spring:
     # 자동설정하고, 그 순간 S13(리액티브-블로킹 격리)의 전제가 무너진다.
     web-application-type: reactive
 
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:llmhub}
+    username: ${POSTGRES_USER:llmhub}
+    password: ${POSTGRES_PASSWORD:changeme}
+
+  jpa:
+    # 스키마는 Flyway가 만든다. Hibernate가 손대지 않는다.
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
   security:
     oauth2:
       resourceserver:

@@ -6,7 +6,9 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.llmhub.support.PostgresInitializer;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 
 /**
@@ -18,6 +20,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
  * <p>주석이나 문서가 아니라 <b>실제로 조립된 체인</b>에서 확인한다.
  */
 @SpringBootTest
+@ContextConfiguration(initializers = PostgresInitializer.class)
 class SecurityFilterChainOrderTest {
 
 	@Autowired private SecurityWebFilterChain chain;
