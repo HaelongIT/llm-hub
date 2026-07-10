@@ -6,3 +6,28 @@ spring:
     # 서블릿 스타터가 클래스패스에 섞여 들어오면 Spring Boot는 조용히 MVC로
     # 자동설정하고, 그 순간 S13(리액티브-블로킹 격리)의 전제가 무너진다.
     web-application-type: reactive
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # issuer-uri가 아니라 jwk-set-uri를 쓴다. issuer-uri는 빈 생성 시점에
+          # Keycloak으로 네트워크 호출을 하므로, Keycloak 없이는 애플리케이션 컨텍스트가
+          # 뜨지 않는다. jwk-set-uri는 첫 검증 때 지연 조회한다.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/llmhub/protocol/openid-connect/certs}
+
+llmhub:
+  auth:
+    # 역할→접근 태그 매핑 (S3, E4). 교체해도 재색인이 필요 없다.
+    # 사용자 태그와 문서 태그는 단일 공유 어휘다. 변환 계층을 만들지 않는다.
+    role-tags:
+      USER:
+        - public
+      ADMIN:
+        - public
+        - restricted
+    # v0는 실질 정책 없이 자리만 (S10).
+    rate-limit-enabled: false
+    # BFF만 외부 노출된다 (SEC-1).
+    cors-allowed-origins:
+      - ${FRONTEND_ORIGIN:http://localhost:3000}

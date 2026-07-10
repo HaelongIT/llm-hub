@@ -43,6 +43,10 @@ dependencies {
 	// MVC를 자동설정한다. 절대 추가하지 말 것 (S13, PERF-1).
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 
+	// AUTH — Keycloak OIDC. 리소스 서버는 JWT를 검증만 하고 로그인 플로우를 수행하지 않는다 (S25).
+	implementation("org.springframework.boot:spring-boot-starter-security")
+	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+
 	// IDX — 토큰 계수(TokenCountEstimator). 자동설정을 끌고 오는 스타터가 아니라 순수 라이브러리다.
 	// spring-ai-core는 없어졌고 1.1.x에서는 spring-ai-commons에 있다.
 	implementation("org.springframework.ai:spring-ai-commons")
