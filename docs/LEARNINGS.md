@@ -53,6 +53,22 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] INFRA — 로컬 PostgreSQL이 5432를 가로챈다 (compose 포트 충돌, 오진하기 쉬움)
+- **상황:** compose 전체 기동 후 코어를 붙였더니 Flyway가 `password authentication failed for user "llmhub"`로 죽었다.
+- **발견:** 로컬에 PostgreSQL 18 서비스가 설치되어 있었고 `0.0.0.0:5432`를 잡고 있었다. Docker는 `[::]:5432`(IPv6)만 잡는다. 그래서 호스트에서 `localhost:5432`로 나가는 연결이 **컨테이너가 아니라 로컬 서버로 갔다.** 그쪽엔 그 비밀번호의 `llmhub` 사용자가 없다.
+- **오진하기 쉬운 이유:** `docker compose exec postgres psql -U llmhub`는 잘 된다. 컨테이너 내부는 trust 인증이라 **틀린 비밀번호로도 통과한다.** "DB는 멀쩡한데 앱만 못 붙는다"로 보여 비밀번호·CRLF·Gradle 데몬 환경변수를 먼저 의심하게 된다.
+- **결정/해결:** `.env.example`의 기본 `POSTGRES_PORT`를 **5433**으로 바꿨다. compose 매핑과 Spring datasource URL이 같은 변수를 쓰므로 한 곳만 고치면 된다.
+- **진단법:** `netstat -ano | grep :5432`로 리스너가 둘인지 본다. 호스트 경로를 그대로 시험하려면 `docker run --rm postgres:17-alpine psql "postgresql://user:pw@host.docker.internal:PORT/db"`.
+- **영향:** REL-5, OQ-002
+- **다음 주의:** "컨테이너 안에서는 되는데 호스트에서는 안 된다"면 포트 충돌을 먼저 의심한다. 그리고 컨테이너 내부 접속으로 비밀번호를 검증하지 말 것 — trust 인증이라 아무 비밀번호나 통과한다.
+
+## [2026-07-10] TOOLING — 셸에 마크다운 코드 펜스를 넣지 말 것 (의도치 않은 명령 실행)
+- **상황:** `node -e "..."` 안에서 README의 ```` ```bash ```` 블록을 치환하려 함. 셸 문자열 안에 백틱이 들어갔다.
+- **발견:** bash가 백틱을 **명령 치환**으로 해석해 README 코드 블록의 내용을 그대로 실행했다. `git config ...`, `cp .env.example .env`, **`docker compose up -d`** 가 실제로 돌아 컨테이너 넷이 떴다. 파괴적인 작업은 없었지만 의도하지 않은 상태 변경이다.
+- **결정/해결:** 문서 파일 수정은 셸을 거치지 않고 편집 도구로 한다. 셸에서 백틱이 든 문자열을 다루지 않는다. 여러 줄 문자열이 필요하면 heredoc(`<<'EOF'`)을 쓰되, 그 안에도 백틱을 넣지 않는다.
+- **영향:** 없음(되돌릴 수 있는 상태 변경). 다만 `.env`가 placeholder 값으로 생성되었다(gitignore 대상).
+- **다음 주의:** 셸 명령을 조립할 때 "이 문자열이 셸에 의해 해석될 여지가 있는가"를 먼저 묻는다. 백틱·`$(...)`·`$VAR`는 인용 안에서도 살아난다. 부작용이 있는 명령이 문서 안에 적혀 있다면 더더욱.
+
 ## [2026-07-10] CLIENT — `useChat`은 `body`를 받지 않는다. transport가 요청을 만든다
 - **상황:** BFF를 만들고 `useChat`으로 `sessionId`를 함께 보내려 함.
 - **발견:** AI SDK v5부터 `useChat({ body })`는 없다. `new DefaultChatTransport({ api, body })`를 만들어 `useChat({ transport })`로 넘긴다. **타입 검사가 이 추측을 잡았다.** LEARNINGS에 "v5에서 transport 아키텍처로 바뀌었다"고 적어뒀는데도 코드에서는 옛 API를 썼다 — 기록만으로는 부족하고 타입이 막아야 한다.

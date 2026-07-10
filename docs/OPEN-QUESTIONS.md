@@ -20,7 +20,7 @@
 - 모든 항목의 `판단 근거`에는 다음 문장이 문자 그대로 들어가야 한다. 정직하게 쓸 수 없으면 보류할 수 없다.
   > `해당 없음: 도달 가능한 보안 사안 · S 항목 · 데이터 정합성 · 결정 문서`
 
-**현재 OPEN: 3건 / 10건** · BLOCKED 0건
+**현재 OPEN: 2건 / 10건** · BLOCKED 0건
 
 ---
 
@@ -53,7 +53,7 @@
 ## OQ-002 · `docker compose up` 전체 기동을 검증하지 않았다
 
 - **태그:** `INFRA` `HUMAN-VERIFY`
-- **상태:** OPEN
+- **상태:** **RESOLVED** (2026-07-10)
 - **연 시각:** 2026-07-10 (커밋 `b176d54`)
 - **Revisit-trigger:** 첫 CHAT end-to-end 시나리오 이전, 또는 릴리스 태그 이전
 - **Owner:** human (에이전트에게 compose를 띄울 런타임이 없다)
@@ -68,9 +68,18 @@
 
 **회의적인 리뷰어에게:** 리뷰어는 "REL-5(배포 재현성)가 NFR인데 검증을 미뤘다"고 지적할 것이다. 답은 — REL-5는 v0 완성 시점의 요구이지 매 사이클의 요구가 아니고, 지금 기동해도 붙일 애플리케이션이 없으며(AUTH·CHAT 미구현), 첫 CHAT e2e 시나리오가 이걸 강제로 소환한다는 것이다.
 
-**제안하는 조치:** 전용 인프라 점검 — `docker compose up` → 헬스체크 전부 green → 스모크 요청 1회. 에이전트가 헬스체크 설정과 스모크 테스트를 준비하고, 사람이 한 번 로컬에서 돌린다.
+**제안하는 조치:** 전용 인프라 점검 — `docker compose up` → 헬스체크 전부 green → 스모크 요청 1회.
 
-**해결:** *(미해결)*
+**해결:** 실제로 기동해 확인했다.
+
+- Elasticsearch: `status: green`, `_cat/plugins`에 `analysis-nori` 존재.
+- Keycloak: `/realms/llmhub` → HTTP 200. **realm import가 실제로 동작한다.**
+- LiteLLM: `/health/liveliness` → HTTP 200. config.yaml이 로드된다.
+- PostgreSQL: healthy. 코어를 붙이니 Flyway가 마이그레이션 2개를 적용했고 테이블 6개가 생겼다.
+- 코어: Netty로 5.4초 만에 기동. `/api/chat/stream`·`/api/index`·`/api/sessions` 모두 인증 없이는 401.
+- 살아 있는 DB에서 `audit_log`의 FK 개수가 0임을 재확인했다(S5).
+
+**발견한 실제 문제 1건:** compose의 PostgreSQL 호스트 포트를 5432로 두면, 로컬에 PostgreSQL이 설치된 환경에서 그 서버가 `0.0.0.0:5432`를 먼저 잡아 호스트에서 나가는 연결이 컨테이너가 아니라 로컬 서버로 간다(Docker는 IPv6만 잡는다). 증상은 `password authentication failed for user "llmhub"`이고, 컨테이너 내부 `psql`은 trust 인증이라 정상으로 보여 오진하기 쉽다. `.env.example`의 기본 포트를 5433으로 바꿨다.
 
 ---
 
