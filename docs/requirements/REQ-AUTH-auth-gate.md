@@ -26,11 +26,11 @@ S3, S4, S25 · 경계 E4 · NFR SEC-1, SEC-2
 ## 테스트 시나리오 (TDD)
 - [ ] 유효 JWT → 인증 성공, 태그가 컨텍스트에 실림.
 - [ ] 무효/만료 JWT → 401.
-- [ ] USER 역할 → {public} 태그.
-- [ ] ADMIN 역할 → {public, restricted} 태그.
+- [x] USER 역할 → {public} 태그.
+- [x] ADMIN 역할 → {public, restricted} 태그.
 - [ ] 태그 확정이 검색 호출보다 먼저 일어남(순서 검증).
 - [ ] 필터체인 실행 순서가 CORS→JWT→RBAC→RateLimit.
-- [ ] `RoleTagMapper` 매핑 변경 시 다른 코드 변경 없이 태그 결과만 바뀜.
+- [x] `RoleTagMapper` 매핑 변경 시 다른 코드 변경 없이 태그 결과만 바뀜.
 
 ## 하지 않을 것 (v0)
 3역할 이상, 부서·그룹 기반 매핑, 계층형 역할, 개인 지정 공유. — `RoleTagMapper` 교체로 나중에 수용.
