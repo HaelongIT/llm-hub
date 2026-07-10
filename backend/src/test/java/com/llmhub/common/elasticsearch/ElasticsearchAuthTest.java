@@ -42,10 +42,13 @@ class ElasticsearchAuthTest {
 						.withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
 						.withExposedPorts(9200)
 						.waitingFor(
+								// HTTP가 401을 돌려주기 시작해도 아직 `elastic` 사용자를 담는 네이티브 렘이
+								// 준비되지 않았을 수 있다. 그 틈에 인증하면 "unable to authenticate user [elastic]"이다.
+								// 그래서 "응답한다"가 아니라 "자격증명이 실제로 통한다"를 기다린다.
 								Wait.forHttp("/_cluster/health")
 										.forPort(9200)
-										// 보안이 켜졌으면 자격증명 없는 요청은 401이다. 그것도 "떴다"는 신호다.
-										.forStatusCodeMatching(code -> code == 200 || code == 401));
+										.withBasicCredentials("elastic", 비밀번호)
+										.forStatusCode(200));
 		컨테이너.start();
 		url = "http://" + 컨테이너.getHost() + ":" + 컨테이너.getMappedPort(9200);
 	}
