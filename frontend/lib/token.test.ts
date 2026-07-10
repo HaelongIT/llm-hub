@@ -86,6 +86,19 @@ describe('토큰 갱신', () => {
 		assert.equal(갱신됨.error, undefined);
 	});
 
+	it('갱신에 성공하면 이전 실패 표시를 지운다', async () => {
+		// 일시적 네트워크 오류로 error가 한 번 붙은 토큰. 다음 시도에서 갱신이 성공했다.
+		// 성공 반환에 error 키가 없으면 auth.ts의 `{...token, ...refreshed}` 병합에서
+		// 옛 error가 살아남아 사용자가 영구히 재로그인 화면에 갇힌다.
+		const 실패했던_토큰: TokenSet = { ...유효한_토큰, error: 'RefreshAccessTokenError' };
+		const { impl } = 대역_fetch(json({ access_token: 'new', expires_in: 300, refresh_token: 'r2' }));
+
+		const 갱신됨 = await refreshAccessToken(실패했던_토큰, 설정, impl);
+
+		assert.equal(갱신됨.error, undefined);
+		assert.equal({ ...실패했던_토큰, ...갱신됨 }.error, undefined, 'auth.ts의 병합 뒤에도 지워져야 한다');
+	});
+
 	it('응답에 refresh token이 없으면 쓰던 것을 유지한다', async () => {
 		const { impl } = 대역_fetch(json({ access_token: 'new-access', expires_in: 300 }));
 

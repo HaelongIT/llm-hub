@@ -76,6 +76,9 @@ export async function refreshAccessToken(
 			// Keycloak은 갱신 때 새 refresh token을 준다(회전). 옛 값을 계속 쓰면 다음 갱신에서 끊긴다.
 			refreshToken: refreshed.refresh_token ?? token.refreshToken,
 			expiresAt: nowSeconds() + refreshed.expires_in,
+			// 반드시 명시한다. 호출자(auth.ts)가 `{...token, ...refreshed}`로 병합하므로,
+			// 이 키가 없으면 이전 실패의 error가 살아남아 갱신에 성공해도 재로그인 화면에 갇힌다.
+			error: undefined,
 		};
 	} catch {
 		return { ...token, error: 'RefreshAccessTokenError' };
