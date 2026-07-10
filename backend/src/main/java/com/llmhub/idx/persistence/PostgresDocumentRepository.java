@@ -54,7 +54,9 @@ public class PostgresDocumentRepository implements DocumentRepository {
 						.orElseGet(
 								() ->
 										new DocumentEntity(
-												UUID.randomUUID(),
+												// 랜덤이 아니라 doc_key에서 결정적으로 유도한다. 색인 서비스가 커밋 전에
+												// 같은 id로 ES 조각을 조립하기 때문이다 (R-3, DocumentId 참고).
+												com.llmhub.idx.service.DocumentId.of(docKey),
 												docKey,
 												filename,
 												storageKey,

@@ -143,21 +143,13 @@ public final class IndexingService {
 		}
 		log.debug("임베딩 완료 docKey={} model={} vectors={}", docKey, spec.model(), vectors.size());
 
-		DocumentRecord document =
-				documentRepository.upsert(
-						docKey,
-						filename,
-						storageKey.get(),
-						accessTags,
-						spec.model(),
-						// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
-						chunkingStrategy.version(),
-						uploadedBy);
-
+		// id는 PG 커밋보다 먼저 필요하다. doc_key에서 결정적으로 유도하므로 upsert 전에 조각을 조립할 수 있다.
+		// document의 태그·이름은 upsert에 넘길 값과 같다 — 그 값으로 조각을 만든다.
+		String documentId = DocumentId.of(docKey).toString();
 		String indexingRunId = UUID.randomUUID().toString();
 		List<IndexedChunk> indexed =
 				assembler.assemble(
-						new DocumentMetadata(document.id(), document.filename(), document.accessTags()),
+						new DocumentMetadata(documentId, filename, accessTags),
 						chunks,
 						spec,
 						indexingRunId,
@@ -171,7 +163,21 @@ public final class IndexingService {
 
 		// 순서가 전부다. 신버전 색인이 끝난 뒤에만 구버전을 지운다.
 		// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
-		chunkRepository.deleteStaleChunks(document.id(), indexingRunId);
+		chunkRepository.deleteStaleChunks(documentId, indexingRunId);
+
+		// ES가 확정된 뒤에만 PG 메타데이터를 커밋한다. ES가 실패하면 여기 도달하지 못하므로,
+		// 검색 불가인데 stale 목록에도 없는 유령 문서가 생기지 않는다 (R-3). 원본 보관(storageKey.get())도
+		// 이 시점에 일어나 색인 실패 시 고아 파일이 남지 않는다.
+		DocumentRecord document =
+				documentRepository.upsert(
+						docKey,
+						filename,
+						storageKey.get(),
+						accessTags,
+						spec.model(),
+						// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
+						chunkingStrategy.version(),
+						uploadedBy);
 
 		log.info(
 				"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",

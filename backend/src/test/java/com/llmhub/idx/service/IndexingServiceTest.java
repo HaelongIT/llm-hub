@@ -134,6 +134,36 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("ES 색인이 실패하면 PG 문서가 커밋되지 않는다 — 유령 문서 방지 (R-3)")
+	void ES_색인_실패시_PG를_커밋하지_않는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		chunks.indexAll_던진다 = true;
+
+		assertThatThrownBy(() -> service.index(요청("규정", "규정.txt", List.of("public"))))
+				.isInstanceOf(IllegalStateException.class);
+
+		assertThat(documents.byId)
+				.as("ES가 실패했는데 PG 행이 남으면 검색 불가인데 stale에도 안 잡히는 유령 문서가 된다 (R-3)")
+				.isEmpty();
+	}
+
+	@Test
+	@DisplayName("재색인 중 ES 색인이 실패하면 PG 메타데이터가 옛 모델 그대로 남는다 (R-3)")
+	void 재색인_중_ES_실패시_PG가_신모델로_덮이지_않는다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(new EmbeddingSpec("옛-모델", 4)));
+		IndexResult 결과 = service.index(요청("규정", "규정.txt", List.of("public")));
+
+		service = 같은_저장소로_다시_만든다(root, new FakeEmbeddingClient(new EmbeddingSpec("새-모델", 4)));
+		chunks.indexAll_던진다 = true;
+
+		assertThatThrownBy(() -> service.reindex("규정")).isInstanceOf(IllegalStateException.class);
+
+		assertThat(documents.byId.get(결과.documentId()).embeddingModel())
+				.as("ES가 실패했는데 PG만 신모델이면 색인!=검색 모델이 되고 stale도 못 잡는다 (S8-4, R-3)")
+				.isEqualTo("옛-모델");
+	}
+
+	@Test
 	@DisplayName("같은 doc_key로 재색인하면 구버전 조각이 사라지고 신버전만 남는다")
 	void 재색인하면_구버전_조각이_사라진다(@TempDir Path root) {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
@@ -481,6 +511,9 @@ class IndexingServiceTest {
 		/** null이면 인덱스가 아직 없다는 뜻이다. */
 		private Integer 인덱스_차원;
 
+		/** 참이면 indexAll이 던진다. ES 부분/전체 실패를 흉내내 R-3 순서를 검증한다. */
+		private boolean indexAll_던진다;
+
 		@Override
 		public java.util.OptionalInt indexedDimensions() {
 			return 인덱스_차원 == null ? java.util.OptionalInt.empty() : java.util.OptionalInt.of(인덱스_차원);
@@ -492,6 +525,9 @@ class IndexingServiceTest {
 		@Override
 		public void indexAll(List<EmbeddedChunk> batch) {
 			순서.add("indexAll");
+			if (indexAll_던진다) {
+				throw new IllegalStateException("ES bulk 실패");
+			}
 			indexed.addAll(batch);
 		}
 
@@ -531,7 +567,9 @@ class IndexingServiceTest {
 				java.util.UUID uploadedBy) {
 			마지막_업로더 = uploadedBy;
 			마지막_청킹버전 = chunkingVersion;
-			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (byId.size() + 1));
+			// 서비스가 커밋 전에 DocumentId.of(docKey)로 ES 조각을 조립하므로, 대역도 같은 값을 id로 써야
+			// 조각의 document_id와 저장된 document.id가 일치한다 (R-3).
+			String id = idByDocKey.computeIfAbsent(docKey, k -> DocumentId.of(k).toString());
 			DocumentRecord record =
 					new DocumentRecord(id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel);
 			byId.put(id, record);

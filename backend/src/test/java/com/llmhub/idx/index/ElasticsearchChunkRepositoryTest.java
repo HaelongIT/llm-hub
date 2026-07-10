@@ -2,6 +2,7 @@ package com.llmhub.idx.index;
 
 import com.llmhub.common.embedding.EmbeddingSpec;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.indices.AnalyzeRequest;
@@ -101,6 +102,47 @@ class ElasticsearchChunkRepositoryTest {
 					assertThat(c.indexingRunId()).isEqualTo("run-new");
 					assertThat(c.text()).isEqualTo("신버전 내용");
 				});
+	}
+
+	@Test
+	@DisplayName("bulk 일부가 실패하면 이번 run의 조각을 하나도 남기지 않고 롤백한다 (R-11)")
+	void bulk_부분_실패시_이번_run을_롤백한다() {
+		// ES bulk는 원자적이지 않다. 하나가 실패해도 성공한 op는 이미 반영된다. 그대로 두면 반쪽 색인이 구 run과
+		// 공존해 중복 근거가 된다. 롤백이 없으면 이 테스트가 그것을 드러낸다.
+		DocumentMetadata 문서 = new DocumentMetadata("doc-partial", "규정.txt", List.of("public"));
+		List<IndexedChunk> indexed =
+				new ChunkAssembler()
+						.assemble(문서, List.of(new Chunk("정상 조각", "0"), new Chunk("차원 깨진 조각", "1")), 임베딩, "run-partial", 색인시각);
+
+		// 첫째는 정상 4차원. 둘째는 embeddingDim을 3으로 바꿔 3차원 벡터를 실어 ES 매핑(dims=4)을 위반시킨다.
+		// 그 op만 실패하고 첫째는 성공한다 → response.errors()가 참이 된다.
+		IndexedChunk 정상 = indexed.get(0);
+		IndexedChunk 깨진 = 차원을_바꾼다(indexed.get(1), 3);
+		List<EmbeddedChunk> batch =
+				List.of(
+						new EmbeddedChunk(정상, new float[] {0.1f, 0.2f, 0.3f, 0.4f}),
+						new EmbeddedChunk(깨진, new float[] {0.1f, 0.2f, 0.3f}));
+
+		assertThat(catchThrowable(() -> repository.indexAll(batch)))
+				.as("부분 실패는 깨끗한 예외로 끝나야 한다 (S8-3)")
+				.isInstanceOf(IllegalStateException.class);
+
+		assertThat(repository.findByDocumentId("doc-partial"))
+				.as("성공한 op까지 롤백되어야 한다. 안 그러면 반쪽 색인이 구 run과 공존한다 (R-11)")
+				.isEmpty();
+	}
+
+	private static IndexedChunk 차원을_바꾼다(IndexedChunk c, int dim) {
+		return new IndexedChunk(
+				c.documentId(),
+				c.documentName(),
+				c.location(),
+				c.accessTags(),
+				c.indexedAt(),
+				c.embeddingModel(),
+				dim,
+				c.indexingRunId(),
+				c.text());
 	}
 
 	@Test

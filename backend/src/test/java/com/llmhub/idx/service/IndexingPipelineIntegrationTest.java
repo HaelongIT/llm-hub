@@ -174,7 +174,9 @@ class IndexingPipelineIntegrationTest {
 				String embeddingModel,
 				String chunkingVersion,
 				java.util.UUID uploadedBy) {
-			String id = idByDocKey.computeIfAbsent(docKey, k -> "doc-" + (idByDocKey.size() + 1));
+			// 서비스가 커밋 전에 DocumentId.of(docKey)로 ES 조각을 조립하므로, 대역도 같은 값을 id로 써야
+			// 조각의 document_id와 저장된 document.id가 일치한다 (R-3).
+			String id = idByDocKey.computeIfAbsent(docKey, k -> DocumentId.of(k).toString());
 			DocumentRecord record = new DocumentRecord(id, docKey, filename, storageKey, accessTags, embeddingModel);
 			byDocKey.put(docKey, record);
 			return record;

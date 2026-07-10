@@ -104,13 +104,45 @@ public final class ElasticsearchChunkRepository implements ChunkRepository {
 			ChunkSource source = ChunkSource.from(embedded);
 			bulk.operations(op -> op.index(i -> i.id(documentIdOf(embedded.chunk())).document(source)));
 		}
+		BulkResponse response;
 		try {
-			BulkResponse response = client.bulk(bulk.build());
-			if (response.errors()) {
-				throw new IllegalStateException("조각 색인 실패: " + firstError(response));
-			}
+			response = client.bulk(bulk.build());
 		} catch (IOException e) {
 			throw new UncheckedIOException("조각 색인 실패", e);
+		}
+		if (response.errors()) {
+			// ES bulk는 원자적이지 않다. 성공한 op는 이미 반영됐으므로, 이번 run의 조각을 도로 지운 뒤
+			// 실패로 끝낸다. 안 지우면 반쪽 색인이 구 run과 공존하며 중복 근거를 만든다 (R-11).
+			rollback(chunks);
+			throw new IllegalStateException("조각 색인 실패: " + firstError(response));
+		}
+	}
+
+	/**
+	 * 부분 실패한 bulk의 흔적을 지운다. 한 번의 {@code indexAll}은 한 문서·한 실행의 조각만 담으므로, 그
+	 * {@code document_id}와 {@code indexing_run_id}로 이번 run의 조각을 정확히 겨냥한다.
+	 */
+	private void rollback(List<EmbeddedChunk> chunks) {
+		IndexedChunk any = chunks.get(0).chunk();
+		try {
+			client.deleteByQuery(
+					d ->
+							d.index(indexName)
+									.refresh(true)
+									.query(
+											q ->
+													q.bool(
+															b ->
+																	b.must(m -> m.term(t -> t.field("document_id").value(any.documentId())))
+																			.must(
+																					m ->
+																							m.term(
+																									t ->
+																											t.field("indexing_run_id")
+																													.value(any.indexingRunId()))))));
+		} catch (IOException e) {
+			// 롤백까지 실패하면 반쪽 색인이 남는다. 삼키지 않고 이 더 급한 실패를 올린다.
+			throw new UncheckedIOException("부분 색인 롤백 실패: " + any.documentId(), e);
 		}
 	}
 

@@ -331,3 +331,11 @@
 - **SSE 유휴 타임아웃은 `Flux.timeout(Duration)`이다 — 전체 응답 상한이 아니라 토큰 '사이' 상한.** LLM이 조용히 멈추면 에러가 emit되지 않아 `onErrorResume`이 돌지 않는다(done도 error도 안 나감 → 브라우저 무한 로딩). `timeout`이 `TimeoutException`을 만들어 그때서야 `onErrorResume`이 `ChatEvent.Error`로 닫는다. 토큰이 계속 오는 긴 답변은 잘리지 않는다.
 - **뮤테이션으로 두 방어를 각각 검증했다.** 프로덕션에서 타임아웃을 빼면 테스트가 **실패가 아니라 매달린다**(Gradle 데몬이 죽었다) — `block()`/`assertTimeout`에 상한을 주지 않으면 뮤테이션 테스트가 무의미하다. `block(Duration.ofSeconds(5))`로 고친 뒤에야 red가 드러났다.
 - **남은 것:** **ES transport 타임아웃은 아직 없다.** `ElasticsearchTransportConfig.Builder`에 타임아웃 메서드가 없어(이전 세션에서 확인) RestClient 계층에서 소켓 타임아웃을 줘야 한다. R-3/R-11(유령 문서)과 같은 색인 경로라 함께 다룬다. **"타임아웃을 넣었다"가 "모든 외부 호출에 넣었다"는 아니다** — 세 곳(임베딩·SSE·ES) 중 둘만 닫혔다.
+
+## [2026-07-11] IDX — 두 저장소 쓰기는 원자적일 수 없다, 그래서 순서가 방어다 (R-3, R-11)
+- **상황:** 색인이 PG upsert(즉시 커밋) → ES indexAll → deleteStale 순이었다. ES가 부분 장애(쓰기 차단·매핑 오류·bulk 거부)면 PG 행은 이미 *현재 모델*로 커밋돼 유령 문서가 된다 — 검색 불가인데 `staleDocuments()`(모델 불일치로 찾음)에도 안 잡힌다. 실측으로 확인했었다(`index.blocks.write=true`).
+- **결정(사람):** ES 먼저, 성공 후 PG. status 컬럼 2단계(더 견고하지만 마이그레이션+검색 경로 변경)는 v0 뼈대 범위 밖이라 하지 않는다.
+- **핵심 난점:** ES 조각은 `document_id`가 필요한데 그 id는 지금까지 upsert가 커밋하며 발급했다. ES를 먼저 하려면 id가 커밋보다 **먼저** 필요하다. **해결: document id를 doc_key에서 결정적으로 유도**(`DocumentId.of(docKey)` = `UUID.nameUUIDFromBytes`). doc_key가 document의 정체성이므로(S17) id도 그로부터 나오는 게 자연스럽다. 덕분에 `upsert` 시그니처를 안 바꾸고(=PG 테스트 16곳 안 건드리고) 커밋 전에 조각을 조립한다. 신규는 서비스·upsert가 같은 함수로 같은 id를 얻고, 재색인은 그 값이 저장된 id와 같다.
+- **대역 주의:** 서비스가 커밋 전에 `DocumentId.of(docKey)`로 조각을 만드므로, **모든 DocumentRepository 대역**(`FakeDocumentRepository`, `InMemoryDocumentRepository`)도 id를 같은 함수로 발급해야 조각의 `document_id`와 저장된 `document.id`가 맞는다. "doc-N" 임의 id를 쓰면 통합 테스트에서 `findByDocumentId`가 빈 결과를 준다. 이걸로 3건이 깨졌다 잡았다.
+- **ES bulk는 원자적이지 않다(R-11).** `response.errors()`가 참이어도 성공한 op는 이미 반영됐다. 예외만 던지면 반쪽 색인이 구 run과 공존한다. **한 번의 `indexAll`은 한 문서·한 실행의 조각만 담으므로**, `chunks.get(0)`의 `document_id`+`indexing_run_id`로 이번 run 조각을 정확히 겨냥해 롤백 삭제한 뒤 던진다. 통합 테스트는 한 조각의 `embeddingDim`을 3으로 바꿔(`EmbeddedChunk`가 벡터 길이==embeddingDim만 검사하므로 통과) ES 매핑(dims=4)을 위반시켜 부분 실패를 만들었다. 뮤테이션(롤백 제거)으로 red 확인.
+- **남은 것:** ES **완전** 장애는 안전하다(차원 검사가 upsert 전에 ES를 쳐서 먼저 실패). PG-실패-after-ES-성공(드묾, 로컬 PG)은 ES 조각만 남지만 태그로 필터돼 안전하고 다음 색인에서 정리된다. ES transport 타임아웃(R-2 잔여)은 아직 없다 — 다음.
