@@ -177,6 +177,12 @@ public final class IndexingService {
 	private void requireCompatibleDimensions(EmbeddingSpec spec) {
 		OptionalInt indexed = chunkRepository.indexedDimensions();
 		if (indexed.isPresent() && indexed.getAsInt() != spec.dimensions()) {
+			// 응답은 409뿐이다. 이유는 로그에만 남으므로 반드시 남긴다 (S8-3, REL-3).
+			log.warn(
+					"임베딩 차원 불일치로 색인을 거부한다. 설정={} 인덱스={} model={} — 차원을 바꾸려면 새 인덱스가 필요하다 (docs/03)",
+					spec.dimensions(),
+					indexed.getAsInt(),
+					spec.model());
 			throw new EmbeddingDimensionMismatchException(indexed.getAsInt(), spec.dimensions());
 		}
 	}
