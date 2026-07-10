@@ -227,6 +227,16 @@ class ChatPersistenceTest {
 		}
 
 		@Override
+		public List<com.llmhub.chat.SessionSummary> sessionsOf(UUID userId) {
+			return List.of();
+		}
+
+		@Override
+		public boolean isOwnedBy(UUID sessionId, UUID userId) {
+			return true;
+		}
+
+		@Override
 		public void append(UUID sessionId, Message message, String sourcesJson) {
 			if (멈춤 != null) {
 				try {

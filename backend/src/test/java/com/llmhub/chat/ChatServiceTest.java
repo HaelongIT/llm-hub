@@ -68,6 +68,16 @@ class ChatServiceTest {
 
 			@Override
 			public void append(java.util.UUID sessionId, Message message, String sourcesJson) {}
+
+			@Override
+			public List<SessionSummary> sessionsOf(java.util.UUID userId) {
+				return List.of();
+			}
+
+			@Override
+			public boolean isOwnedBy(java.util.UUID sessionId, java.util.UUID userId) {
+				return true;
+			}
 		};
 	}
 

@@ -2,6 +2,7 @@ package com.llmhub.chat.persistence;
 
 import com.llmhub.chat.ChatHistoryRepository;
 import com.llmhub.chat.Message;
+import com.llmhub.chat.SessionSummary;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -39,6 +40,21 @@ public class PostgresChatHistoryRepository implements ChatHistoryRepository {
 	@Transactional
 	public void deleteSession(UUID sessionId) {
 		sessions.deleteById(sessionId);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<SessionSummary> sessionsOf(UUID userId) {
+		return sessions.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+				.map(s -> new SessionSummary(s.getId(), s.getTitle(), s.getCreatedAt(), s.getUpdatedAt()))
+				.toList();
+	}
+
+	/** 남의 세션은 존재하지 않는 것처럼 취급한다. */
+	@Override
+	@Transactional(readOnly = true)
+	public boolean isOwnedBy(UUID sessionId, UUID userId) {
+		return sessions.findByIdAndUserId(sessionId, userId).isPresent();
 	}
 
 	@Override

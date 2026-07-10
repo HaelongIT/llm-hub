@@ -38,4 +38,20 @@ class ChatSessionEntity {
 	UUID getId() {
 		return id;
 	}
+
+	UUID getUserId() {
+		return userId;
+	}
+
+	String getTitle() {
+		return title;
+	}
+
+	Instant getCreatedAt() {
+		return createdAt;
+	}
+
+	Instant getUpdatedAt() {
+		return updatedAt;
+	}
 }

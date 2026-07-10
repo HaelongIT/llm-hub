@@ -15,6 +15,12 @@ public interface ChatHistoryRepository {
 	/** 세션 삭제. 메시지는 cascade로 사라지고 감사 로그는 영향받지 않는다 (S5). */
 	void deleteSession(UUID sessionId);
 
+	/** 이 사용자가 소유한 세션. 최근 갱신 순. */
+	List<SessionSummary> sessionsOf(UUID userId);
+
+	/** 소유자가 맞는지 확인한다. 남의 세션은 존재하지 않는 것처럼 취급한다. */
+	boolean isOwnedBy(UUID sessionId, UUID userId);
+
 	/** 오래된 것부터 정렬된 이력. */
 	List<Message> history(UUID sessionId);
 
