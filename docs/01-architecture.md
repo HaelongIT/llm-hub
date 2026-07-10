@@ -10,21 +10,23 @@ CLIENT  →  EDGE  →  CORE  →  DATA·RAG  →  INFRA
 
 ### 01 · CLIENT (Next.js)
 - App Router, 사이드바 레이아웃, zustand로 세션 상태.
-- Vercel AI SDK `useChat` — **이벤트 타입 스트림**(`streamProtocol: 'data'`) 파싱: `text`/`sources`/`error`/`done`.
+- Vercel AI SDK `useChat`(`@ai-sdk/react`) — AI SDK의 데이터 스트림 프로토콜을 파싱한다.
+- **BFF가 프로토콜을 번역한다.** `useChat`은 SSE의 `event:` 이름이 아니라 `data:` 안 JSON의 `type` 필드로 파트를 구분하므로, 코어가 내보내는 명명된 이벤트(`text`/`sources`/`error`/`done`)를 BFF에서 AI SDK 파트(`text-delta`/`data-sources`/`error`/`finish`)로 옮긴다. 응답에 `x-vercel-ai-ui-message-stream: v1` 헤더가 필요하다. 번역은 BFF 한 곳에만 존재하고, 코어는 S6의 이벤트 타입 SSE를 그대로 유지한다.
 - next-auth(Keycloak 프로바이더): 로그인→콜백→토큰. 세션 쿠키 → `Authorization` 헤더.
 - BFF(`/api/chat/stream`)만 호출. LiteLLM Gateway에 직접 접근 금지.
 
 ### 02 · EDGE (Spring Security)
 - 필터체인 실행 순서: **CORS → JWT → RBAC → RateLimit**.
-- JWT 검증(`OncePerRequestFilter`) → `SecurityContext`.
+- 리액티브 스택이므로 서블릿 필터가 아니라 `WebFilter`를 쓴다. 보안 설정은 `ServerHttpSecurity`로 만든 `SecurityWebFilterChain` 빈이며, 위 순서는 `SecurityWebFiltersOrder`의 위치(CORS → AUTHENTICATION → AUTHORIZATION)에 대응한다. (`OncePerRequestFilter`는 서블릿 전용이라 WebFlux에서 쓸 수 없다.)
+- JWT 검증(`oauth2ResourceServer().jwt()`) → `SecurityContext`. 확정된 접근태그는 `Authentication`에 실어 Reactor `Context`를 타고 스트리밍 `Flux` 연산자들을 가로질러 전파된다.
 - **RBAC 단계 = 앞단 게이트**: 역할→접근태그 매핑을 호출해 태그 집합을 요청 컨텍스트에 적재. (핵심: 권한 확정을 여기서 끝낸다)
 - RateLimit: v0는 자리만(통과/느슨한 기본값).
 - Keycloak OIDC Authorization Code Flow, Realm Role → GrantedAuthority.
 
 ### 03 · CORE (WebFlux + Spring AI)
 - `ChatController`(WebFlux): `/api/chat/stream` → `Flux<ServerSentEvent<…>>`.
-- `ChatClient.prompt().advisors(...).stream()`.
-- RAG Advisor Chain: `RetrievalAugmentationAdvisor`(검색+증강) → `FilterExpression`(**접근태그 기반** 필터, 게이트가 확정한 태그를 소비만) → `QuestionAnswerAdvisor`(근거 인용).
+- `ChatClient.prompt().stream()`. RAG Advisor 체인에 강결합하지 않는다(E13).
+- **검색은 Advisor 안이 아니라 CHAT이 명시적으로 호출한다.** CHAT이 SEARCH를 먼저 부르고(접근태그 필터는 SEARCH의 ES 쿼리에서 적용), 받은 조각을 프롬프트에 주입한 뒤 `ChatClient`를 호출한다. 이유: S6가 요구하는 "sources는 서버 검색 결과에서만 나온다"를 코드 구조로 드러내고, 첫 `text` 토큰보다 먼저 `sources` 이벤트를 확정 발행하기 위해서다. (`QuestionAnswerAdvisor`와 `RetrievalAugmentationAdvisor`는 각자 독립적으로 검색을 수행하는 대안 관계이며 직렬로 엮으면 검색이 두 번 돈다. 스트리밍에서 검색 결과가 첫 토큰보다 먼저 방출된다는 보장도 문서화되어 있지 않다.)
 - 검색 쿼리 생성은 독립 단계(향후 쿼리 재작성 삽입 가능).
 - 감사 로그: 요청 단위 추적 ID.
 
