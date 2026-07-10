@@ -68,6 +68,9 @@ llmhub:
     chunk-size-tokens: ${CHUNK_SIZE_TOKENS:512}
     index-name: ${ES_INDEX_NAME:llmhub-chunks}
     elasticsearch-url: ${ES_URL:http://localhost:9200}
+    # 운영에서는 ES 보안이 켜져 있다(SEC-1). 개발 compose는 꺼져 있어 비워 둔다.
+    elasticsearch-username: ${ES_USERNAME:}
+    elasticsearch-password: ${ES_PASSWORD:}
 
   embedding:
     # 색인과 검색이 반드시 같은 모델·차원을 써야 한다. 다르면 에러 없이 검색 품질만 붕괴한다 (S8-4).

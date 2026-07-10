@@ -1,9 +1,7 @@
 package com.llmhub.idx.config;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
-import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
+import com.llmhub.common.elasticsearch.ElasticsearchClientFactory;
 import com.llmhub.idx.chunking.ChunkingStrategy;
 import com.llmhub.idx.chunking.TokenChunkingStrategy;
 import com.llmhub.common.embedding.EmbeddingClient;
@@ -19,7 +17,6 @@ import com.llmhub.idx.service.IndexingService;
 import com.llmhub.idx.storage.FileStorage;
 import com.llmhub.idx.storage.LocalFileStorage;
 import com.llmhub.idx.upload.UploadValidator;
-import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -42,10 +39,13 @@ public class IdxConfig {
 		return new LiteLlmEmbeddingClient(properties.baseUrl(), properties.apiKey(), spec);
 	}
 
+	/** 운영에서 ES는 보안이 켜져 있다. 자격증명은 설정값이다 (SEC-1, SEC-3). */
 	@Bean
 	ElasticsearchClient elasticsearchClient(IdxProperties properties) {
-		Rest5Client lowLevel = Rest5Client.builder(URI.create(properties.elasticsearchUrl())).build();
-		return new ElasticsearchClient(new Rest5ClientTransport(lowLevel, new JacksonJsonpMapper()));
+		return ElasticsearchClientFactory.create(
+				properties.elasticsearchUrl(),
+				properties.elasticsearchUsername(),
+				properties.elasticsearchPassword());
 	}
 
 	@Bean

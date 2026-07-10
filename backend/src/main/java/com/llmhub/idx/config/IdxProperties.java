@@ -13,6 +13,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param chunkSizeTokens 토큰 크기 기준 청킹 (S12).
  * @param indexName ES 조각 인덱스.
  * @param elasticsearchUrl 내부망 전용 (SEC-1).
+ * @param elasticsearchUsername 운영에서는 ES 보안이 켜져 있다. 비어 있으면 인증하지 않는다.
+ * @param elasticsearchPassword 비밀정보다. 코드·저장소에 넣지 않는다 (SEC-3).
  */
 @ConfigurationProperties(prefix = "llmhub.idx")
 public record IdxProperties(
@@ -21,4 +23,6 @@ public record IdxProperties(
 		String storageRoot,
 		int chunkSizeTokens,
 		String indexName,
-		String elasticsearchUrl) {}
+		String elasticsearchUrl,
+		String elasticsearchUsername,
+		String elasticsearchPassword) {}
