@@ -27,10 +27,16 @@ public final class ElasticsearchChunkRepository implements ChunkRepository {
 
 	private final ElasticsearchClient client;
 	private final String indexName;
+	private final String analyzer;
 
-	public ElasticsearchChunkRepository(ElasticsearchClient client, String indexName) {
+	/**
+	 * @param analyzer {@code chunk_text}의 BM25 분석기. 언어는 배포 설정이다 (S15, E16, REL-4). 바꾸면
+	 *     <b>새 인덱스가 필요하다</b> — 매핑은 인덱스 생성 시 고정된다.
+	 */
+	public ElasticsearchChunkRepository(ElasticsearchClient client, String indexName, String analyzer) {
 		this.client = client;
 		this.indexName = indexName;
+		this.analyzer = analyzer;
 	}
 
 	@Override
@@ -46,7 +52,7 @@ public final class ElasticsearchChunkRepository implements ChunkRepository {
 									c.index(indexName)
 											.mappings(
 													m ->
-															m.properties("chunk_text", p -> p.text(t -> t.analyzer("nori")))
+															m.properties("chunk_text", p -> p.text(t -> t.analyzer(analyzer)))
 																	.properties(
 																			"embedding",
 																			p ->

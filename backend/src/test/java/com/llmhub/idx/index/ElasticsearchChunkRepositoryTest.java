@@ -32,7 +32,7 @@ class ElasticsearchChunkRepositoryTest {
 	@BeforeAll
 	static void 인덱스를_만든다() {
 		client = ElasticsearchTestSupport.client();
-		repository = new ElasticsearchChunkRepository(client, 인덱스);
+		repository = new ElasticsearchChunkRepository(client, 인덱스, "nori");
 		repository.createIndexIfMissing(임베딩);
 	}
 
@@ -127,11 +127,39 @@ class ElasticsearchChunkRepositoryTest {
 	@DisplayName("인덱스가 아직 없으면 차원도 없다")
 	void 인덱스가_없으면_차원이_없다() {
 		ElasticsearchChunkRepository 없는_인덱스 =
-				new ElasticsearchChunkRepository(client, "llmhub-chunks-존재하지-않음");
+				new ElasticsearchChunkRepository(client, "llmhub-chunks-존재하지-않음", "nori");
 
 		assertThat(없는_인덱스.indexedDimensions())
 				.as("첫 색인은 인덱스를 만들면서 시작한다. 비교할 대상이 없다")
 				.isEmpty();
+	}
+
+	@Test
+	@DisplayName("chunk_text 분석기는 설정값이다 — 코드에 박히지 않는다")
+	void 분석기는_설정값이다() throws IOException {
+		// REL-4: "임베딩 모델, N턴, top-k, 분석기, ... 는 설정값. 코드 하드코딩 금지."
+		// 도메인 중립 ≠ 언어 중립이지만, 언어는 배포 설정이다 (E16).
+		assertThat(분석기(인덱스)).as("v0 기본값은 한국어 nori다 (S15)").isEqualTo("nori");
+
+		String 다른_인덱스 = "llmhub-chunks-standard";
+		new ElasticsearchChunkRepository(client, 다른_인덱스, "standard").createIndexIfMissing(임베딩);
+
+		assertThat(분석기(다른_인덱스))
+				.as("설정이 실제 매핑에 닿지 않으면 외부화한 것이 아니다")
+				.isEqualTo("standard");
+	}
+
+	/** 실제 ES 매핑에서 읽는다. "설정을 넣었다"와 "매핑이 그렇게 만들어졌다"는 다르다. */
+	private static String 분석기(String indexName) throws IOException {
+		return client
+				.indices()
+				.getMapping(g -> g.index(indexName))
+				.get(indexName)
+				.mappings()
+				.properties()
+				.get("chunk_text")
+				.text()
+				.analyzer();
 	}
 
 	private static void 색인한다(DocumentMetadata 문서, String 실행ID, Chunk... 조각들) {

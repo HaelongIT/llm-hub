@@ -41,7 +41,7 @@ class IndexingPipelineIntegrationTest {
 	@DisplayName("PDF를 색인하면 조각이 ES에 저장되고 메타 7종이 모두 존재한다")
 	void pdf를_색인하면_ES에_메타_7종과_함께_저장된다(@TempDir Path root) {
 		var chunkRepository =
-				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-pipeline");
+				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-pipeline", "nori");
 		var service =
 				new IndexingService(
 						new UploadValidator(Map.of("pdf", Set.of("application/pdf")), 1_000_000),
@@ -77,7 +77,7 @@ class IndexingPipelineIntegrationTest {
 	@DisplayName("재색인하면 보관된 원본에서 다시 읽어 조각이 통째로 교체된다")
 	void 재색인하면_실제_ES의_조각이_교체된다(@TempDir Path root) {
 		var chunkRepository =
-				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-reindex");
+				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-reindex", "nori");
 		var documents = new InMemoryDocumentRepository();
 		var service =
 				new IndexingService(
@@ -121,7 +121,7 @@ class IndexingPipelineIntegrationTest {
 	@DisplayName("hwp를 색인하면 hwplib 경로로 추출되어 한국어 조각이 ES에 저장된다")
 	void hwp를_색인하면_hwplib_경로로_저장된다(@TempDir Path root) {
 		var chunkRepository =
-				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-pipeline");
+				new ElasticsearchChunkRepository(ElasticsearchTestSupport.client(), "llmhub-chunks-pipeline", "nori");
 		var service =
 				new IndexingService(
 						new UploadValidator(Map.of("hwp", Set.of("application/x-hwp")), 1_000_000),

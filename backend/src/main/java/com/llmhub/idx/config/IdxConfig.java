@@ -50,7 +50,7 @@ public class IdxConfig {
 
 	@Bean
 	ChunkRepository chunkRepository(ElasticsearchClient client, IdxProperties properties) {
-		return new ElasticsearchChunkRepository(client, properties.indexName());
+		return new ElasticsearchChunkRepository(client, properties.indexName(), properties.analyzer());
 	}
 
 	@Bean

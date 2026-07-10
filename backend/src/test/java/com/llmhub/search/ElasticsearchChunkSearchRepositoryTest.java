@@ -38,7 +38,7 @@ class ElasticsearchChunkSearchRepositoryTest {
 	@BeforeAll
 	static void 조각을_색인한다() {
 		var client = ElasticsearchTestSupport.client();
-		var writer = new ElasticsearchChunkRepository(client, 인덱스);
+		var writer = new ElasticsearchChunkRepository(client, 인덱스, "nori");
 		writer.createIndexIfMissing(임베딩);
 
 		색인한다(writer, "doc-휴가", "휴가규정.txt", List.of("public"), "연차휴가는 근로기준법에 따라 부여한다.", 휴가_벡터);
