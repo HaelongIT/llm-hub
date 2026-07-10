@@ -34,59 +34,59 @@ class ModuleBoundaryTest {
 	static final ArchRule IDX는_다른_모듈에_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..idx..")
+					.resideInAPackage("com.llmhub.idx..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..auth..", "..search..", "..chat..", "..audit..")
+					.resideInAnyPackage("com.llmhub.auth..", "com.llmhub.search..", "com.llmhub.chat..", "com.llmhub.audit..")
 					.because("IDX는 관리자 경로에 독립적으로 선다 (docs/01)");
 
 	@ArchTest
 	static final ArchRule AUTH는_다른_모듈에_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..auth..")
+					.resideInAPackage("com.llmhub.auth..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..idx..", "..search..", "..chat..", "..audit..")
+					.resideInAnyPackage("com.llmhub.idx..", "com.llmhub.search..", "com.llmhub.chat..", "com.llmhub.audit..")
 					.because("AUTH는 앞단 게이트이며 하위 계층을 알지 못한다 (S4)");
 
 	@ArchTest
 	static final ArchRule SEARCH는_다른_모듈에_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..search..")
+					.resideInAPackage("com.llmhub.search..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..idx..", "..auth..", "..chat..", "..audit..")
+					.resideInAnyPackage("com.llmhub.idx..", "com.llmhub.auth..", "com.llmhub.chat..", "com.llmhub.audit..")
 					.because("SEARCH는 AUTH가 확정한 태그를 소비만 하며 권한을 재판단하지 않는다 (S4)");
 
 	@ArchTest
 	static final ArchRule AUDIT는_다른_모듈에_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..audit..")
+					.resideInAPackage("com.llmhub.audit..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..idx..", "..auth..", "..search..", "..chat..")
+					.resideInAnyPackage("com.llmhub.idx..", "com.llmhub.auth..", "com.llmhub.search..", "com.llmhub.chat..")
 					.because("AUDIT는 CHAT의 비동기 훅이며 독립 수명주기를 가진다 (S5)");
 
 	@ArchTest
 	static final ArchRule CHAT은_IDX에_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..chat..")
+					.resideInAPackage("com.llmhub.chat..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..idx..")
+					.resideInAnyPackage("com.llmhub.idx..")
 					.because("색인은 관리자 경로이며 채팅 흐름과 무관하다 (docs/01)");
 
 	@ArchTest
 	static final ArchRule common은_어떤_모듈에도_의존하지_않는다 =
 			noClasses()
 					.that()
-					.resideInAPackage("..common..")
+					.resideInAPackage("com.llmhub.common..")
 					.should()
 					.dependOnClassesThat()
-					.resideInAnyPackage("..idx..", "..auth..", "..search..", "..chat..", "..audit..")
+					.resideInAnyPackage("com.llmhub.idx..", "com.llmhub.auth..", "com.llmhub.search..", "com.llmhub.chat..", "com.llmhub.audit..")
 					.because("common은 공통 부품이며 모듈을 알지 못한다 (MAINT-1)");
 }

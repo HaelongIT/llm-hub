@@ -43,14 +43,21 @@ dependencies {
 	// MVC를 자동설정한다. 절대 추가하지 말 것 (S13, PERF-1).
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 
-	// IDX — 토큰 청킹. TokenTextSplitter는 spring-ai-commons에 있다(spring-ai-core는 없어졌다).
-	// 자동설정을 끌고 오는 스타터가 아니라 순수 라이브러리다.
+	// IDX — 토큰 계수(TokenCountEstimator). 자동설정을 끌고 오는 스타터가 아니라 순수 라이브러리다.
+	// spring-ai-core는 없어졌고 1.1.x에서는 spring-ai-commons에 있다.
 	implementation("org.springframework.ai:spring-ai-commons")
+
+	// IDX/SEARCH — ES 하이브리드 검색은 Spring AI의 VectorStore(kNN 전용)로 불가능하므로
+	// ES Java 클라이언트를 직접 쓴다. 클라이언트 major.minor를 서버와 일치시킨다.
+	implementation("co.elastic.clients:elasticsearch-java:9.4.3")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("io.projectreactor:reactor-test")
 	// 모듈 경계와 의존 방향을 테스트로 강제한다 (MAINT-1, docs/01)
 	testImplementation("com.tngtech.archunit:archunit-junit5:1.4.2")
+	testImplementation(platform("org.testcontainers:testcontainers-bom:1.21.4"))
+	testImplementation("org.testcontainers:elasticsearch")
+	testImplementation("org.testcontainers:junit-jupiter")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
