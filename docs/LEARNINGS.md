@@ -53,6 +53,24 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] TEST — ArchUnit의 `..search..`는 서드파티 패키지까지 매치한다 (경계 규칙 오탐)
+- **상황:** ES Java 클라이언트를 IDX에 도입하자 `IDX는_다른_모듈에_의존하지_않는다` 규칙이 갑자기 실패했다.
+- **발견:** ArchUnit의 `..search..` 패턴은 "이름에 `search` 세그먼트가 들어간 **모든** 패키지"를 매치한다. `co.elastic.clients.elasticsearch.core.search`가 걸렸다. 우리 모듈 경계가 아니라 라이브러리 내부 패키지를 잡은 **오탐**이다. `..chat..`, `..idx..` 등도 같은 위험이 있다.
+- **결정/해결:** 모든 규칙을 `com.llmhub.search..`처럼 **완전한 패키지 접두사**로 좁혔다. 규칙을 약화시킨 것이 아니라 의도한 규칙으로 바로잡은 것이다.
+- **영향:** MAINT-1, `ModuleBoundaryTest`
+- **다음 주의:** ArchUnit에서 `..x..`는 편해 보이지만 서드파티와 충돌한다. 경계 규칙은 항상 루트 패키지부터 적는다. 또한 Gradle의 `--tests` 필터는 ArchUnit 테스트를 걸러내지 못해 항상 함께 실행된다.
+
+## [2026-07-10] IDX — ES 9.x Java 클라이언트는 rest5 트랜스포트를 쓴다 / nori 동작을 실제로 확인함
+- **상황:** 조각 저장소를 ES Java 클라이언트 9.4.3으로 구현하고 Testcontainers로 검증하려 함.
+- **발견:**
+  - 9.x의 필수 의존은 `elasticsearch-rest5-client`다. 구 `elasticsearch-rest-client`는 compile 의존이 아니다. 진입점은 `Rest5Client.builder(URI...)` → `new Rest5ClientTransport(lowLevel, new JacksonJsonpMapper())`.
+  - `dense_vector`의 `similarity`는 문자열이 아니라 `DenseVectorSimilarity` enum이다.
+  - Testcontainers는 compose와 **같은 Dockerfile**을 `ImageFromDockerfile().withDockerfile(path)`로 빌드할 수 있다. ES 8+ 이미지는 보안이 기본 활성이므로 `withEnv("xpack.security.enabled","false")`가 필요하다.
+  - **nori가 실제로 동작함을 확인했다.** `_analyze`로 `chunk_text` 필드에 "연차휴가는"을 넣으면 `연차`·`휴가` 토큰이 나온다. nori가 없으면 통째로 한 토큰이 되어 "연차휴가"로 검색되지 않는다.
+- **결정/해결:** `ElasticsearchChunkRepository`가 `chunk_text`(nori)와 `embedding`(dense_vector, cosine)을 한 문서에 담는다. 두 필드가 함께 있어야 BM25와 벡터를 단일 쿼리로 결합할 수 있다(S11, PERF-3). ES 문서 `_id`는 `documentId:runId:location`으로 결정적으로 만든다 — 재실행해도 중복이 안 생기고, 신·구 버전 조각이 서로를 덮어쓰지 않는다(S17).
+- **영향:** S7, S11, S15, S17, PERF-3, REL-5
+- **다음 주의:** 통합 테스트가 compose와 다른 이미지를 쓰면 "색인과 검색이 같은 분석기를 쓴다"는 보장이 사라진다. 반드시 같은 Dockerfile을 쓸 것.
+
 ## [2026-07-10] IDX — Spring AI `TokenTextSplitter`는 한국어 글자를 조각 경계에서 깨뜨린다
 - **상황:** S12(토큰 크기 기준 기계적 청킹)를 `docs/01`이 지정한 `TokenTextSplitter`로 구현하려 함.
 - **발견:** 이 구현은 텍스트를 **바이트 수준 BPE 토큰**으로 인코딩한 뒤 토큰 목록을 잘라 각 조각을 디코딩한다. 한글 한 글자는 여러 토큰에 걸치므로 조각 경계가 글자 중간을 자르고, 디코딩 결과에 **U+FFFD 치환 문자**가 남는다. 실제 관측: `[연차휴가는 근로기준법에 �]` / `[�라 부여한다…]` — "따"가 두 동강 났다. **예외는 전혀 발생하지 않는다.** 영어에서는 거의 드러나지 않고 한국어에서만 터진다.
