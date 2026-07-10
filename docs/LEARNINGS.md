@@ -250,3 +250,23 @@
 - **발견 2 — `@ResponseStatus`:** 이 프로젝트에는 예외→상태 매핑이 하나도 없었다(`UploadRejectedException`도 없다). WebFlux가 `@ResponseStatus`가 붙은 예외를 존중하는지 문서로 믿지 않고 테스트로 확인했다 — **동작한다**(404, 409).
 - **결정/해결:** `ChunkRepository.indexedDimensions()`(`OptionalInt`)로 기존 인덱스 차원을 읽고, 임베딩 **전에** 설정 차원과 비교해 다르면 `EmbeddingDimensionMismatchException`(409). 실패가 확정된 작업에 임베딩 비용을 쓰지 않고, 구버전 조각도 건드리지 않는다(S8-3).
 - **다음 주의:** "거부했다"와 "돈을 쓰고 거부했다"는 다르다. 테스트는 예외 타입만이 아니라 **`embed()`가 한 번도 불리지 않았음**을 단언한다. 차원은 인덱스 생성 시 고정되므로, 차원을 바꾸려면 새 인덱스가 필요하다(`docs/03`) — 재색인 API가 해결해 주지 않는다.
+
+## [2026-07-10] OBS — 실패한 요청만 추적이 끊긴다 (에러 핸들러는 MDC를 보지 않는다)
+- **상황:** REL-3을 "마감"했다고 보고한 뒤, 500 응답의 `X-Trace-Id`를 들고 로그를 뒤졌더니 **없었다.**
+- **발견:** 500·404를 찍는 것은 우리 코드가 아니라 스프링의 `AbstractErrorWebExceptionHandler`다. 그 로그 줄은 MDC가 아니라 `exchange.getLogPrefix()`를 쓴다. MDC는 `Blocking.call` 안에서만 심으므로 리액티브 스레드에서 도는 에러 핸들러에는 비어 있다. 정상 요청은 멀쩡하고 **실패한 요청만** 추적이 끊긴다 — 하필 추적이 가장 필요한 쪽이다.
+- **결정/해결:** 두 가지. (1) `TraceIdWebFilter`가 `ServerWebExchange.LOG_ID_ATTRIBUTE`를 추적 ID로 덮어쓴다. `getLogPrefix()`는 이 속성을 **매번 다시 읽어** 캐시를 무효화한다(바이트코드로 확인: 필드 `logId`와 비교 후 재계산). 그래서 프레임워크의 모든 로그 줄이 우리 ID를 접두사로 쓴다. (2) `DefaultErrorAttributes`를 확장해 실패 본문에 `traceId`를 싣는다. 기본 본문의 `requestId`는 Netty 식별자라 우리 로그 어디에도 없다.
+- **영향:** REL-3, `common/{TraceIdWebFilter,TraceIdErrorAttributes}`
+- **다음 주의:** **"관측성을 붙였다"를 정상 경로로만 확인하지 말 것.** 일부러 500을 내고(원본 파일을 지운 문서를 재색인) 응답 헤더의 ID로 로그를 grep해야 진짜 확인이다. 그리고 `server.error.include-message`는 켜지 않는다 — 켜면 모든 예외의 내부 문구가 밖으로 나간다(SEC-3). 나가는 것은 추적 ID뿐이고 원인은 그 ID로 로그에서 찾는다.
+
+## [2026-07-10] API — 도메인 예외에 상태가 없으면 정상 거부가 500으로 나간다
+- **상황:** `UploadRejectedException`(SEC-4 허용목록 위반)에 `@ResponseStatus`가 없었다. 이 프로젝트에 예외→상태 매핑이 **하나도** 없었다.
+- **발견:** 거부 자체는 정확히 동작한다(document 0행, ES 조각 0개). 그러나 응답이 **500 Internal Server Error**다. 클라이언트 잘못을 서버 장애로 보고하는 셈이고, 운영에서 정상 거부와 진짜 장애를 구분할 수 없다. 본문에 예외 메시지는 실리지 않으므로 유출은 없다.
+- **결정/해결:** `@ResponseStatus(BAD_REQUEST)`. WebFlux가 예외의 `@ResponseStatus`를 존중한다는 것은 문서가 아니라 테스트로 확인했다(404·409·400).
+- **함께 발견:** 0바이트 파일은 `IndexingService`에 **도달조차 하지 않는다**(색인 시작 로그가 없다). 프레임워크가 400으로 끊는다. `UploadValidator`의 "빈 파일" 검사는 HTTP 경로에서 실행되지 않지만, 다른 진입 경로(E1)를 위해 남겨 뒀다.
+- **다음 주의:** 컨트롤러 테스트로 MIME 불일치를 재현하려 했더니 **200이 나왔다.** `ResourceHttpMessageWriter`가 파일명에서 `Content-Type`을 다시 유도해 버려 `MultipartBodyBuilder`로는 MIME을 속일 수 없다. 실제 클라이언트(curl `;type=`)는 속일 수 있다. **대역이 재현하지 못하는 것을 "테스트했다"고 적지 말 것** — 그 경로는 단위 테스트가 막는다.
+
+## [2026-07-10] DATA — 스키마에 있는 컬럼이 코드에 없으면 조용히 NULL로 남는다
+- **상황:** `docs/03`과 `V1` 마이그레이션에 `document.uploaded_by FK→app_user`가 있는데 `DocumentEntity`에 매핑이 없었다. 실측: 문서 4행, 채워진 행 **0**.
+- **발견:** 파보니 더 컸다. `AuditLogRepository`를 부르는 프로덕션 코드는 `ChatService` 하나뿐이고 `REQ-AUDIT`에는 "색인"이라는 단어가 없다. **관리자가 restricted 문서를 색인해도 어디에도 기록이 남지 않았다.** `uploaded_by`가 그것이 남을 유일한 자리였다.
+- **결정/해결:** `uploaded_by`를 채운다. 계약은 `upsert(..., uploadedBy)`에서 **`null`은 "기존 값 유지"** — 재업로드는 갱신하고(새로 올린 사람이 현재 책임자다), 재색인은 유지한다(다시 올린 게 아니다). 색인을 `audit_log`에도 남길지는 `AUDIT` 태그라 보류할 수 없어 사람에게 물었고, ANSWERED로 기록했다(OQ-006).
+- **다음 주의:** 마이그레이션에만 있고 엔티티에 없는 컬럼은 **테스트가 절대 잡지 못한다.** 삽입도 조회도 성공하고 값만 NULL이다. 스키마와 엔티티의 컬럼 집합을 대조하는 것이 유일한 방법이다. 그리고 `docs/08` §D.2의 자동 차단 태그(`AUDIT`·`DATA` 등)는 **OPEN OQ로 존재할 수 없다** — 보류가 아니라 물어야 한다.
