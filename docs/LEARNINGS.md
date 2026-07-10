@@ -53,6 +53,13 @@
 - **영향:** S6, docs/01
 - **다음 주의:** 프론트 스캐폴딩은 CHAT 모듈 착수 시점에 한다. AI SDK는 v5에서 transport 아키텍처로 바뀌어(`append`→`sendMessage`, `isLoading`→`status`) 옛 예제가 대부분 맞지 않는다.
 
+## [2026-07-10] CLIENT — `typescript@7`은 JS API가 없다. 타입 검사는 통과하고 빌드가 죽는다
+- **상황:** npm 레지스트리에서 `typescript`의 `latest`가 `7.0.2`라 그것을 사전 승인 목록에 올렸다. `npx tsc --noEmit`가 통과해 문제를 못 봤다.
+- **발견:** TypeScript 7은 **Go 기반 재작성판**이다. `package.json`에 `main` 필드가 없고 `tsc` 바이너리만 제공한다. Next는 `require('typescript')`로 프로그램 API를 쓰므로 `next build`가 `The "id" argument must be of type string. Received undefined`라는 무관해 보이는 메시지로 죽는다. **CLI는 되고 API는 안 되는** 상태라 타입 검사만으로는 절대 드러나지 않는다.
+- **결정/해결:** `typescript@5.9.3`으로 고정했다. 그리고 pre-commit 훅에 `next build`를 추가했다 — 깨끗한 빌드가 6초라 비용이 작고, 타입 검사가 못 잡는 부류를 잡는다. 훅이 실제로 빌드 실패를 차단하는지 일부러 깨뜨려 확인했다.
+- **영향:** docs/08 §E(사전 승인 의존성), `.githooks/pre-commit`
+- **다음 주의:** **`latest` 태그가 곧 "우리가 쓸 수 있는 최신"은 아니다.** 메이저 재작성판이 latest를 차지할 수 있다. 그리고 "타입 검사 통과"는 "빌드 성공"이 아니다 — 검증 수단을 하나만 두면 그 수단이 못 보는 층이 통째로 비어 있게 된다.
+
 ## [2026-07-10] INFRA — Keycloak 개발용 계정: 프로필이 비면 로그인이 막힌다
 - **상황:** `bootstrap-dev.sh`로 `dev-user`/`dev-admin`을 만들고 토큰을 받으려 함.
 - **발견 1:** Keycloak 24+의 **선언적 사용자 프로필**은 `email`·`firstName`·`lastName`을 필수로 본다. 비어 있으면 `VERIFY_PROFILE` 필수 액션이 걸려 로그인이 `invalid_grant: Account is not fully set up`으로 막힌다. **사용자의 `requiredActions`는 빈 배열로 보여** 진단이 어렵다 — 역할·비밀번호·enabled를 아무리 확인해도 원인이 안 나온다. 프로필 세 필드를 채우면 즉시 해결된다.

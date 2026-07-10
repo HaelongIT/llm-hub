@@ -2,8 +2,9 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { toUiMessages, type CoreMessage } from '@/lib/history';
 import { useSessionStore } from '@/lib/store';
 
 /** 근거 한 건. 코어의 Source와 같은 모양이다. */
@@ -29,7 +30,36 @@ export function Chat() {
 		() => new DefaultChatTransport({ api: '/api/chat/stream', body: { sessionId } }),
 		[sessionId],
 	);
-	const { messages, sendMessage, status, error } = useChat({ transport });
+	const { messages, setMessages, sendMessage, status, error } = useChat({ transport });
+
+	// 세션을 바꾸면 그 세션의 이력을 불러온다. 세션이 없으면 화면을 비운다.
+	useEffect(() => {
+		let cancelled = false;
+
+		if (!sessionId) {
+			setMessages([]);
+			return;
+		}
+
+		void (async () => {
+			const response = await fetch(`/api/sessions/${sessionId}/messages`);
+			if (!response.ok || cancelled) {
+				return;
+			}
+			const history = (await response.json()) as CoreMessage[];
+			if (!cancelled) {
+				setMessages(toUiMessages(history));
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [sessionId, setMessages]);
+
+	if (!sessionId) {
+		return <section aria-live="polite">왼쪽에서 대화를 선택하거나 새로 시작하세요.</section>;
+	}
 
 	return (
 		<section>

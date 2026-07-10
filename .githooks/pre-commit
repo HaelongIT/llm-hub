@@ -114,7 +114,12 @@ if echo "$staged" | grep -qE '^frontend/.*\.(ts|tsx|json)$'; then
 		if ! (cd frontend && npm test --silent); then
 			fail "프론트엔드 테스트가 실패했다. green이 아니면 커밋하지 않는다 (절대 규칙 7)."
 		fi
-		echo "  ✔ 타입 검사·테스트 통과"
+		# 타입 검사가 통과해도 빌드가 죽을 수 있다. typescript 7은 tsc 바이너리만 있고
+		# JS API가 없어 `npx tsc`는 통과하지만 `next build`는 죽었다. 6초면 잡는다.
+		if ! (cd frontend && npx next build >/dev/null 2>&1); then
+			fail "프론트엔드 빌드가 실패했다. 타입 검사만으로는 잡히지 않는 결함이 있다."
+		fi
+		echo "  ✔ 타입 검사·테스트·빌드 통과"
 	fi
 fi
 

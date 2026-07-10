@@ -1,5 +1,6 @@
-import { auth, signIn } from '@/auth';
+import { auth, signIn, signOut } from '@/auth';
 import { Chat } from '@/components/Chat';
+import { Sessions } from '@/components/Sessions';
 
 export default async function Home() {
 	const session = await auth();
@@ -22,8 +23,22 @@ export default async function Home() {
 
 	return (
 		<main>
-			<h1>llmhub</h1>
-			<Chat />
+			<header>
+				<h1>llmhub</h1>
+				<form
+					action={async () => {
+						'use server';
+						await signOut();
+					}}
+				>
+					<button type="submit">로그아웃</button>
+				</form>
+			</header>
+
+			<div>
+				<Sessions />
+				<Chat />
+			</div>
 		</main>
 	);
 }
