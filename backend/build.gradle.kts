@@ -17,6 +17,15 @@ repositories {
 	mavenCentral()
 }
 
+// Spring AI 1.1.x — 2.0은 Spring Boot 4를 요구하므로 쓰지 않는다 (docs/08 §E).
+extra["springAiVersion"] = "1.1.8"
+
+dependencyManagement {
+	imports {
+		mavenBom("org.springframework.ai:spring-ai-bom:${property("springAiVersion")}")
+	}
+}
+
 // 의존성은 그것을 요구하는 TDD 사이클에서 추가한다.
 // 아직 쓰지 않는 스타터를 미리 넣으면 자동설정이 켜져 스캐폴딩 테스트를 깨뜨린다
 // (예: data-jpa는 DataSource 설정 없이 컨텍스트 기동을 실패시킨다).
@@ -33,6 +42,10 @@ dependencies {
 	// spring-boot-starter-web을 함께 넣으면 Spring Boot가 WebFlux가 아니라
 	// MVC를 자동설정한다. 절대 추가하지 말 것 (S13, PERF-1).
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
+
+	// IDX — 토큰 청킹. TokenTextSplitter는 spring-ai-commons에 있다(spring-ai-core는 없어졌다).
+	// 자동설정을 끌고 오는 스타터가 아니라 순수 라이브러리다.
+	implementation("org.springframework.ai:spring-ai-commons")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("io.projectreactor:reactor-test")
