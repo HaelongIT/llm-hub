@@ -449,3 +449,14 @@ fail-closed로 401**(보안 구멍 아님, 자기 DoS).
   override(dev 완화)가 섞이지 않게 한다.
 - **realm import는 최초 기동 때 한 번만 적용된다.** 컨테이너 재생성(볼륨 초기화) 시 배포별 값이 사라지므로
   해당 환경 bootstrap을 다시 돌린다. 문서: `docker/keycloak/README.md`.
+
+## [2026-07-11] 코드리뷰 수정 사이클 — F1~F7 (검증 가능한 것부터)
+2026-07-11 리뷰(docs/reviews/2026-07-11-full-codebase.md)의 발견을 심각도순 TDD로 고쳤다. B1·F3·B3은 실브라우저/토폴로지라 유보(OQ-012·OQ-013).
+- **F1 — Reactor `flatMapMany` 매퍼는 upstream onNext에서만 실행된다.** 그래서 감사 `doFinally`를 매퍼 '안쪽' Flux에 붙이면, 소스 Mono(검색)가 onError일 때 매퍼가 안 불려 doFinally가 **구독조차 안 된다** → 검색 실패·조기취소 감사 0건. 수정: 감사 doFinally를 `onErrorResume` **바깥 최외곽**으로. onErrorResume이 오류를 삼켜 종료 신호가 대부분 ON_COMPLETE로 오므로, `AtomicBoolean errored`(onErrorResume에서 set)로 ERROR를 구분하고 취소는 CANCEL 신호로 CANCELLED. sources는 `AtomicReference`로 캡처(검색 실패 시 빈 목록).
+- **감사는 fire-and-forget 비동기(Blocking.run().subscribe())라 테스트에서 래치로 기다린다.** 캡처형 `AuditLogRepository`에 `CountDownLatch`를 두고 `collectList().block()` 뒤 `latch.await()`로 기록을 기다린 뒤 outcome을 단언.
+- **F2 — 결정적 documentId + 락 부재 = 동시 색인 상호 삭제.** `DocumentId.of(docKey)`가 결정적이라 같은 docKey 동시 색인 두 건이 `deleteStaleChunks(id, runId)`로 서로의 조각을 지워 ES 0개·유령 문서. 수정: ES색인→삭제→PG커밋 임계구역을 **docKey 단위 인프로세스 줄무늬 락(64 stripe)**으로 직렬화(임베딩은 락 밖). v0 단일 인스턴스 가정, 다중 인스턴스는 PG advisory lock.
+- **락이 막는 인터리빙은 테스트로 강제할 수 없다(데드락).** 락이 있으면 두 번째 스레드가 임계구역에 못 들어가므로, "겹침을 강제하는 배리어"는 데드락이다. 대신 **겹침을 감지**한다: indexAll에 지연을 두고 `AtomicInteger 활성`이 1을 넘으면 겹침 플래그. 락이 있으면 구조적으로 활성≤1(결정적 green), 뮤테이션(락 제거)+지연이면 겹침·조각 0개(red).
+- **F5 — 길이 가드 `question != null && ...`가 null을 통과시킨다.** 새 세션 경로 `titleOf(null)` NPE → 컨트롤러 Flux에 onErrorResume이 없어 raw 500(기존-세션 경로의 클린 error와 불일치). `@ResponseStatus(400)` 예외로 진입부에서 null/blank 거부.
+- **F6 — `String.substring`은 UTF-16 코드유닛 기준이라 서로게이트 쌍을 쪼갠다.** 60번째가 쌍의 low half면(charAt(59)이 high surrogate) 한 칸 앞에서 자른다. 테스트는 `Character.toChars(0x1D518)`로 보조평면 문자를 만들어(소스 인코딩 무관) UTF-8 왕복 동일성으로 고립 서로게이트 부재를 단언.
+- **F7 — 신뢰 못 하는 입력에 `[...messages]` 스프레드는 undefined면 TypeError 500.** `lastUserText`를 `lib/`로 추출해 `Array.isArray` 방어, 라우트는 비배열이면 400.
+- **커밋 훅이 백엔드 변경마다 전체 스위트(~4.5분, Testcontainers)를 돌린다.** 가끔 컨테이너 기동 flake로 실패하니 재시도로 통과. 백엔드 커밋을 백그라운드로 돌리고 그 사이 프론트/문서를 준비하면 대기를 겹칠 수 있다(단 훅 실행 중 백엔드 파일·gradle은 건드리지 않는다 — 워킹트리를 읽으므로).
