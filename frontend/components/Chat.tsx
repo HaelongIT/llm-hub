@@ -106,6 +106,11 @@ export function Chat() {
 		transport,
 	});
 
+	// status를 최신으로 참조한다. 아래 이력 effect의 클로저는 생성 시점의 옛 status를 캡처하므로,
+	// 이력이 늦게 도착했을 때 "그 사이 사용자가 새 턴을 시작했는지"를 이 ref로 판단한다.
+	const statusRef = useRef(status);
+	statusRef.current = status;
+
 	// 세션을 바꾸면 그 세션의 이력을 불러온다. 세션이 없으면 화면을 비운다.
 	useEffect(() => {
 		let cancelled = false;
@@ -115,9 +120,12 @@ export function Chat() {
 		}
 		void (async () => {
 			const response = await fetch(`/api/sessions/${sessionId}/messages`);
-			if (!response.ok || cancelled) return;
+			// cancelled: 세션 전환·언마운트. status !== 'ready': 같은 세션에서 사용자가 이미 새 턴을 시작함.
+			// 후자를 확인하지 않으면 방금 보낸 질문과 스트리밍 응답을 (그 턴이 없는) 이력 스냅샷이 덮어쓴다 (리뷰 F4).
+			// 세션을 바꾸면 useChat 인스턴스가 id로 새로 만들어져 status가 'ready'이므로 정상 로드된다.
+			if (!response.ok || cancelled || statusRef.current !== 'ready') return;
 			const history = (await response.json()) as CoreMessage[];
-			if (!cancelled) setMessages(toUiMessages(history));
+			if (!cancelled && statusRef.current === 'ready') setMessages(toUiMessages(history));
 		})();
 		return () => {
 			cancelled = true;
