@@ -10,39 +10,63 @@ export default async function Home() {
 	// 401이 된다. 다시 로그인시킨다 (S25).
 	if (!session || session.error) {
 		return (
-			<main>
-				<h1>llmhub</h1>
-				{session?.error && <p role="alert">로그인이 만료되었습니다. 다시 로그인해 주세요.</p>}
+			<div className="gate">
+				<div className="gate__brand">
+					<span className="mark" aria-hidden="true" />
+					llmhub
+				</div>
+				<p className="gate__tagline">사내 문서에서 근거를 찾아 답합니다</p>
+				{session?.error && (
+					<p className="gate__msg" role="alert">
+						로그인이 만료되었습니다. 다시 로그인해 주세요.
+					</p>
+				)}
 				<form
 					action={async () => {
 						'use server';
 						await signIn('keycloak');
 					}}
 				>
-					<button type="submit">Keycloak으로 로그인</button>
+					<button type="submit" className="gate__btn">
+						Keycloak으로 로그인
+					</button>
 				</form>
-			</main>
+			</div>
 		);
 	}
 
-	return (
-		<main>
-			<header>
-				<h1>llmhub</h1>
-				<form
-					action={async () => {
-						'use server';
-						await signOut();
-					}}
-				>
-					<button type="submit">로그아웃</button>
-				</form>
-			</header>
+	const who = session.user?.name || session.user?.email || '사용자';
 
-			<div>
+	return (
+		<div className="app">
+			<aside className="sidebar">
+				<div className="sidebar__brand">
+					<span className="mark" aria-hidden="true" />
+					llmhub
+				</div>
+
 				<Sessions />
+
+				<div className="sidebar__foot">
+					<span className="sidebar__user" title={who}>
+						{who}
+					</span>
+					<form
+						action={async () => {
+							'use server';
+							await signOut();
+						}}
+					>
+						<button type="submit" className="signout">
+							로그아웃
+						</button>
+					</form>
+				</div>
+			</aside>
+
+			<main className="main">
 				<Chat />
-			</div>
-		</main>
+			</main>
+		</div>
 	);
 }

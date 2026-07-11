@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { sessionTitle, type SessionSummary } from '@/lib/history';
 import { useSessionStore } from '@/lib/store';
+import { relativeTime } from '@/lib/time';
 
 /**
  * 사이드바. 세션은 사용자 소유이며 생성·조회·삭제만 한다 (S2).
@@ -59,27 +60,49 @@ export function Sessions() {
 	}
 
 	return (
-		<nav aria-label="대화 목록">
-			<button type="button" onClick={() => void createSession()}>
-				새 대화
+		<>
+			<button type="button" className="newchat" onClick={() => void createSession()}>
+				＋ 새 대화
 			</button>
 
-			{error && <p role="alert">{error}</p>}
+			{error && (
+				<p className="alert" role="alert">
+					{error}
+				</p>
+			)}
 
-			<ul>
-				{sessions.map((session) => (
-					<li key={session.id} aria-current={session.id === currentSessionId ? 'true' : undefined}>
-						<button type="button" onClick={() => select(session.id)}>
-							{sessionTitle(session)}
-						</button>
-						<button type="button" aria-label={`${sessionTitle(session)} 삭제`} onClick={() => void deleteSession(session.id)}>
-							삭제
-						</button>
-					</li>
-				))}
-			</ul>
+			<nav className="sessions" aria-label="대화 목록">
+				<ul>
+					{sessions.map((session) => {
+						const title = sessionTitle(session);
+						const active = session.id === currentSessionId;
+						return (
+							<li
+								key={session.id}
+								className={active ? 'session session--active' : 'session'}
+								aria-current={active ? 'true' : undefined}
+							>
+								<button type="button" className="session__title" onClick={() => select(session.id)}>
+									{title}
+								</button>
+								<span className="session__time">{relativeTime(session.updatedAt)}</span>
+								<button
+									type="button"
+									className="session__delete"
+									aria-label={`${title} 삭제`}
+									onClick={() => void deleteSession(session.id)}
+								>
+									삭제
+								</button>
+							</li>
+						);
+					})}
+				</ul>
 
-			{sessions.length === 0 && !error && <p>대화가 없습니다. 새 대화를 시작하세요.</p>}
-		</nav>
+				{sessions.length === 0 && !error && (
+					<p className="sidebar__empty">대화가 없습니다. 새 대화를 시작하세요.</p>
+				)}
+			</nav>
+		</>
 	);
 }

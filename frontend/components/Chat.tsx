@@ -16,6 +16,53 @@ type Source = {
 	score: number;
 };
 
+function scorePct(score: number, max: number): number {
+	return max > 0 ? Math.round((score / max) * 100) : 0;
+}
+
+/** 답변보다 먼저 도착한 근거를 "증거 슬립"으로. 서버가 실제로 검색한 조각이다 (S6). */
+function Evidence({ sources }: { sources: Source[] }) {
+	if (sources.length === 0) {
+		return <p className="evidence--empty">관련 근거를 찾지 못했습니다.</p>;
+	}
+	const max = Math.max(...sources.map((s) => s.score));
+	return (
+		<div className="evidence">
+			<span className="evidence__label">근거 {sources.length}</span>
+			{sources.map((source) => (
+				<div className="slip" key={`${source.documentId}:${source.location}`}>
+					<div className="slip__head">
+						<span className="slip__doc" title={source.documentName}>
+							{source.documentName}
+						</span>
+						<span className="slip__loc">· {source.location}</span>
+						<span className="slip__score">
+							<span className="scorebar" aria-hidden="true">
+								<span className="scorebar__fill" style={{ width: `${scorePct(source.score, max)}%` }} />
+							</span>
+							<span className="slip__num">{source.score.toFixed(2)}</span>
+						</span>
+					</div>
+					<blockquote className="slip__quote">{source.text}</blockquote>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function Thinking({ label }: { label: string }) {
+	return (
+		<div className="streaming" aria-live="polite">
+			{label}
+			<span className="dots" aria-hidden="true">
+				<span />
+				<span />
+				<span />
+			</span>
+		</div>
+	);
+}
+
 /**
  * 근거는 커스텀 `data-sources` 파트로 온다. 내장 source-document 파트는 위치·점수를 싣지 못한다.
  *
@@ -59,42 +106,64 @@ export function Chat() {
 		};
 	}, [sessionId, setMessages]);
 
+	const busy = status === 'streaming' || status === 'submitted';
+	// 답변 청크가 아직 없을 때(검색 중)를 위한 대기 인디케이터.
+	const awaitingAnswer = status === 'submitted' && messages.at(-1)?.role === 'user';
+
 	if (!sessionId) {
-		return <section aria-live="polite">왼쪽에서 대화를 선택하거나 새로 시작하세요.</section>;
+		return <div className="empty">질문을 시작하려면 왼쪽에서 새 대화를 여세요.</div>;
 	}
 
 	return (
-		<section>
-			{messages.map((message) => (
-				<article key={message.id}>
-					<strong>{message.role === 'user' ? '나' : '도우미'}</strong>
-					{message.parts.map((part, i) => {
-						if (part.type === 'text') {
-							return <p key={i}>{part.text}</p>;
-						}
-						if (part.type === 'data-sources') {
-							const sources = part.data as Source[];
-							return (
-								<ul key={i}>
-									{sources.map((source) => (
-										<li key={`${source.documentId}:${source.location}`}>
-											<cite>
-												{source.documentName} ({source.location})
-											</cite>
-											<blockquote>{source.text}</blockquote>
-										</li>
-									))}
-								</ul>
-							);
-						}
-						return null;
-					})}
-				</article>
-			))}
+		<>
+			<div className="thread">
+				{messages.map((message, index) => {
+					const text = message.parts
+						.filter((part) => part.type === 'text')
+						.map((part) => (part as { text: string }).text)
+						.join('');
+					const sourcesPart = message.parts.find((part) => part.type === 'data-sources');
+					const sources = sourcesPart ? ((sourcesPart as { data: Source[] }).data ?? []) : null;
+					const streamingThis = status === 'streaming' && index === messages.length - 1;
 
-			{error && <p role="alert">응답이 중단되었습니다: {error.message}</p>}
+					if (message.role === 'user') {
+						return (
+							<article className="msg msg--user" key={message.id}>
+								<div className="msg__label">질문</div>
+								<div className="question">{text}</div>
+							</article>
+						);
+					}
+
+					return (
+						<article className="msg msg--assistant" key={message.id}>
+							{sources && <Evidence sources={sources} />}
+							<div className="msg__label">답변</div>
+							{text ? (
+								<div className="answer">{text}</div>
+							) : streamingThis ? (
+								<Thinking label="근거를 종합하는 중" />
+							) : null}
+						</article>
+					);
+				})}
+
+				{awaitingAnswer && (
+					<article className="msg msg--assistant">
+						<div className="msg__label">답변</div>
+						<Thinking label="근거를 검색하는 중" />
+					</article>
+				)}
+
+				{error && (
+					<p className="alert" role="alert">
+						{error.message}
+					</p>
+				)}
+			</div>
 
 			<form
+				className="composer"
 				onSubmit={(event) => {
 					event.preventDefault();
 					if (!input.trim()) return;
@@ -102,16 +171,20 @@ export function Chat() {
 					setInput('');
 				}}
 			>
-				<input
-					value={input}
-					onChange={(event) => setInput(event.target.value)}
-					placeholder="문서에 대해 물어보세요"
-					disabled={status === 'streaming'}
-				/>
-				<button type="submit" disabled={status === 'streaming'}>
-					보내기
-				</button>
+				<div className="composer__row">
+					<input
+						className="composer__input"
+						value={input}
+						onChange={(event) => setInput(event.target.value)}
+						placeholder="문서에 대해 물어보세요"
+						aria-label="질문"
+						disabled={busy}
+					/>
+					<button type="submit" className="composer__send" disabled={busy || !input.trim()}>
+						보내기
+					</button>
+				</div>
 			</form>
-		</section>
+		</>
 	);
 }
