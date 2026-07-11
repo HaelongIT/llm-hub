@@ -20,7 +20,7 @@
 - 모든 항목의 `판단 근거`에는 다음 문장이 문자 그대로 들어가야 한다. 정직하게 쓸 수 없으면 보류할 수 없다.
   > `해당 없음: 도달 가능한 보안 사안 · S 항목 · 데이터 정합성 · 결정 문서`
 
-**현재 OPEN: 2건 / 10건**(OQ-011, OQ-012) · BLOCKED 0건 · ANSWERED 2건(OQ-006, OQ-007, OQ-009) · RESOLVED(OQ-010 외)
+**현재 OPEN: 2건 / 10건**(OQ-011, OQ-012) · BLOCKED 0건 · ANSWERED 3건(OQ-006, OQ-007, OQ-009) · RESOLVED(OQ-010 외)
 
 ---
 
@@ -368,4 +368,13 @@
 - **L-7 · L-8** — 마지막 프레임(단위 확인됨)·세션 전환 시 메시지/error 배너 비혼입.
 - **401→로그인 화면** — 토큰 만료(5분)·refresh·30분 idle 후 401→로그인. 채팅 라우트가 401을 502로 안 뭉개는지.
 
-**하려면(운영 구멍, 여전히 열림):** 운영 프론트 클라이언트 프로비저닝(audience 매퍼 포함)을 저장소에 스크립트/문서로 만든다. dev는 `bootstrap-dev.sh`가 하지만 운영 경로는 없다.
+**운영 프론트 클라이언트 프로비저닝 — 처리됨 (사람 지시, 2026-07-11):** 근본 원인은 audience 매퍼가 dev 전용
+`bootstrap-dev.sh`에만 있고 운영 경로에 없던 것이었다. **매퍼를 `realm-export.json`의 `llmhub-frontend`
+클라이언트에 선언적으로 넣어** dev·운영 `--import-realm` 때 자동 프로비저닝되게 했다(잊힐 수 없음). 배포별 값
+(시크릿·redirect)만 `bootstrap-prod.sh`(신규)가 얹고, 끝에 매퍼 존재를 assert한다. `bootstrap-dev.sh`는
+클라이언트가 import로 먼저 생기므로 update 분기에서 dev 전용 `directAccessGrantsEnabled=true`를 얹도록 1줄
+보강. 문서: `docker/keycloak/README.md`. 실증: dev Keycloak을 force-recreate해 import만으로 매퍼가 뜨는지,
+dev-user 토큰의 `aud`에 `llmhub-backend`가 있는지, 백엔드 200인지 확인.
+
+> **이 OQ가 아직 OPEN인 이유:** 위 "남은 브라우저 검증" 항목이 확장 연결 전이라 그대로 남아 있다. 프로비저닝
+> 하위건만 닫혔고, 브라우저 검증 부채 때문에 OQ-012 전체 상태는 OPEN을 유지한다.

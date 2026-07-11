@@ -18,6 +18,29 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "description": "리소스 서버. JWT를 검증만 하며 로그인 플로우를 수행하지 않는다."
+    },
+    {
+      "clientId": "llmhub-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "description": "프론트 BFF(next-auth) Authorization Code Flow 클라이언트. 시크릿과 redirect URI는 배포별이라 커밋하지 않고(SEC-3) bootstrap-dev.sh / bootstrap-prod.sh가 설정한다. directAccessGrants는 여기서 false(안전 기본)이고 dev 스크립트만 켠다.",
+      "protocolMappers": [
+        {
+          "name": "llmhub-backend-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "llmhub-backend",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ]
 }

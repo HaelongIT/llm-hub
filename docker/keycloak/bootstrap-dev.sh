@@ -51,13 +51,19 @@ kcadm config credentials \
 
 # ─────────────────────────────────────────────────────────────
 # 프론트엔드 클라이언트. next-auth(Auth.js)가 Authorization Code Flow로 쓴다.
-# 시크릿은 realm-export.json에 넣을 수 없다 — 저장소에 커밋되기 때문이다.
+# 클라이언트 자체(구조)와 audience 매퍼는 이제 realm-export.json이 --import-realm로 만든다
+# (dev·운영 공통, 선언적). 여기서는 realm-export에 넣을 수 없는 배포별 값만 얹는다:
+#   - 시크릿 (커밋 금지, SEC-3)
+#   - redirect URI / web origin (배포별 호스트)
+#   - directAccessGrantsEnabled=true — dev 전용. 스모크 테스트가 password grant로 토큰을 받는다.
+#     realm-export의 기본은 false(안전)이므로 dev에서만 켠다. 운영(bootstrap-prod.sh)은 켜지 않는다.
+# 클라이언트는 import로 이미 존재하므로 항상 update 경로를 탄다. 그래도 재실행 안전하게 생성도 남긴다.
 # ─────────────────────────────────────────────────────────────
 client_id=$(kcadm get clients -r "$KEYCLOAK_REALM" \
 	-q "clientId=$KEYCLOAK_CLIENT_ID" --fields id --format csv --noquotes | tr -d '\r')
 
 if [ -z "$client_id" ]; then
-	echo "▸ 클라이언트 생성: $KEYCLOAK_CLIENT_ID"
+	echo "▸ 클라이언트 생성: $KEYCLOAK_CLIENT_ID (realm import가 안 돌았다 — fallback)"
 	kcadm create clients -r "$KEYCLOAK_REALM" \
 		-s "clientId=$KEYCLOAK_CLIENT_ID" \
 		-s enabled=true \
@@ -70,6 +76,7 @@ if [ -z "$client_id" ]; then
 else
 	echo "▸ 클라이언트 갱신: $KEYCLOAK_CLIENT_ID"
 	kcadm update "clients/$client_id" -r "$KEYCLOAK_REALM" \
+		-s directAccessGrantsEnabled=true \
 		-s "secret=$KEYCLOAK_CLIENT_SECRET" \
 		-s "redirectUris=[\"$FRONTEND_ORIGIN/*\"]" \
 		-s "webOrigins=[\"$FRONTEND_ORIGIN\"]" >/dev/null
@@ -77,7 +84,8 @@ fi
 
 # ─────────────────────────────────────────────────────────────
 # audience 매퍼. 백엔드가 aud=llmhub-backend를 검증하므로(R-16), 이 클라이언트가 발급하는 access
-# token에 그 대상을 넣어 준다. 없으면 백엔드가 정당한 토큰도 거부한다. 재실행 가능하게 있으면 건너뛴다.
+# token에 그 대상을 넣어 준다. 이제 realm-export.json이 매퍼를 선언적으로 만들므로, 아래는 재실행/
+# fallback 안전장치일 뿐이다 — import가 이미 만든 경우 조용히 건너뛴다.
 # ─────────────────────────────────────────────────────────────
 client_id=$(kcadm get clients -r "$KEYCLOAK_REALM" \
 	-q "clientId=$KEYCLOAK_CLIENT_ID" --fields id --format csv --noquotes | tr -d '\r')
@@ -86,7 +94,7 @@ has_audience_mapper=$(kcadm get "clients/$client_id/protocol-mappers/models" -r 
 	--fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c "^llmhub-backend-audience$" || true)
 
 if [ "$has_audience_mapper" = "0" ]; then
-	echo "▸ audience 매퍼 추가: aud=llmhub-backend"
+	echo "▸ audience 매퍼 추가: aud=llmhub-backend (import에 없었다 — fallback)"
 	kcadm create "clients/$client_id/protocol-mappers/models" -r "$KEYCLOAK_REALM" \
 		-s name=llmhub-backend-audience \
 		-s protocol=openid-connect \

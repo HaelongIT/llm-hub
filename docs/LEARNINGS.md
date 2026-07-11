@@ -424,3 +424,28 @@
 - **하드 삭제엔 되돌리기 대신 인라인 확인.** 세션 삭제는 코어에서 하드+cascade라 undo 토스트가 거짓말이 된다. 그 자리 인라인 확인(`삭제할까요? 예/취소`)으로.
 - **날짜 그룹핑은 순수함수 + 로컬-달력-일 기준.** `time.dateGroup(iso, nowMs)`는 `setHours(0,0,0,0)`로 로컬 자정 경계를 잡아 오늘/어제/이번 주/이전을 가른다. 테스트는 TZ에 흔들리지 않게 `new Date(2026,6,11,14,0)` 로컬 생성자로 짰다(UTC ISO 리터럴 금지). `DATE_GROUP_ORDER` 상수로 렌더 순서 고정.
 - **검증 방식:** 임시 `/preview` 라우트에 각 상태를 목데이터로 렌더(searchParams로 welcome/conversation 분기) → Playwright(자체 브라우저) 스크린샷·비평(콘솔 에러 0) → 프리뷰 삭제. tsc·next build·npm test(61 pass, dateGroup 신규 4개 포함) 통과. **실제 로그인 흐름(R-8 쿠키 복호·401→로그인·L-8 세션 전환)은 Claude Chrome 확장 연결 후로 유보 — OQ-012.**
+
+## [2026-07-11] 운영 프론트 Keycloak 클라이언트 프로비저닝 (OQ-012 하위건, 사람 지시)
+감사 결과 유일한 스코프-내 미완이었다. R-16이 `aud=llmhub-backend`를 강제하는데, 프론트 클라이언트와
+audience 매퍼는 dev 전용 `bootstrap-dev.sh`만 만들었다 — **운영 배포엔 매퍼가 없어 모든 로그인이
+fail-closed로 401**(보안 구멍 아님, 자기 DoS).
+- **근본 수정은 선언적이다.** 매퍼를 `realm-export.json`의 `llmhub-frontend` 클라이언트
+  `protocolMappers[]`에 넣었다. dev·운영 **둘 다** 같은 파일을 `--import-realm`로 읽으므로
+  (override는 mount를 안 바꿈) 한 소스로 양쪽에 자동 프로비저닝된다 — 매퍼가 잊힐 수 없다. **실증:**
+  dev Keycloak을 `--force-recreate`로 재기동하니 bootstrap 실행 **전에** import만으로 클라이언트 +
+  `llmhub-backend-audience` 매퍼(`included.client.audience=llmhub-backend`)가 존재했다.
+- **배포별 값만 스크립트로.** 시크릿·redirect는 호스트마다 다르고 커밋 금지(SEC-3)라 import에 못 넣는다.
+  `bootstrap-prod.sh`(신규)가 임포트된 클라이언트를 찾아(없으면 명확히 실패) secret·redirect·webOrigins를
+  얹고 `directAccessGrantsEnabled=false`로 굳힌 뒤, **끝에 매퍼 존재를 assert**(fail-closed 자가점검,
+  import drift를 크게 실패시킴). dev 사용자는 안 만든다.
+- **함정 — import가 클라이언트를 먼저 만들면 dev 스크립트의 create 분기가 안 탄다.** 그 결과 CREATE에만
+  있던 `directAccessGrantsEnabled=true`가 누락돼 dev password-grant 토큰 취득이 깨진다(import 기본 false).
+  `bootstrap-dev.sh`의 **update 분기에 `directAccessGrantsEnabled=true` 1줄**을 더해 복구. **실증:**
+  수정 후 dev-user password grant 토큰 `aud=["llmhub-backend","account"]`, 백엔드 `GET /api/sessions` 200.
+- **`docker compose exec`는 어느 -f로 시작했든 같은 컨테이너에 붙는다.** 그래서 `bootstrap-prod.sh`를
+  현재 dev keycloak 컨테이너에 그대로 실행해 전 로직을 검증할 수 있었다(secret·redirect 설정,
+  directAccessGrants=false, 매퍼 assert 통과). 단 directAccessGrants를 꺼 dev를 깨므로, 검증 후
+  `bootstrap-dev.sh`를 재실행해 복원했다. `bootstrap-prod.sh` 자체는 `-f docker-compose.yml`을 명시해
+  override(dev 완화)가 섞이지 않게 한다.
+- **realm import는 최초 기동 때 한 번만 적용된다.** 컨테이너 재생성(볼륨 초기화) 시 배포별 값이 사라지므로
+  해당 환경 bootstrap을 다시 돌린다. 문서: `docker/keycloak/README.md`.
