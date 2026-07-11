@@ -23,8 +23,9 @@ RUN mkdir -p /workspace/layers \
 
 FROM eclipse-temurin:21-jre AS runtime
 
-# 루트로 돌리지 않는다.
-RUN groupadd --system llmhub && useradd --system --gid llmhub --home /app llmhub
+# 루트로 돌리지 않는다. uid를 고정한다 — 리눅스 호스트 바인드마운트에서 소유권이 어긋나지 않게
+# 한다(프론트엔드 1001과 같은 관례). 고정하지 않으면 이미지마다 uid가 달라질 수 있다 (L-10).
+RUN groupadd --system --gid 1001 llmhub && useradd --system --uid 1001 --gid llmhub --home /app llmhub
 WORKDIR /app
 
 COPY --from=build --chown=llmhub:llmhub /workspace/layers/dependencies/ ./

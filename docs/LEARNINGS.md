@@ -405,3 +405,13 @@
 - **구현:** JPA 파생 쿼리 `findByEmbeddingModelNotOrChunkingVersionNot` — 두 컬럼 모두 not-null이라 OR 비교가 명확하다. `DocumentRecord`에 `chunkingVersion` 추가, `StaleReason` enum, 서비스에서 현재값과 비교해 reason 계산.
 - **파생 쿼리는 실 DB로 검증한다.** OR 조건 파생 쿼리가 맞는지는 이름만 보고 믿지 않고 `PostgresDocumentRepositoryTest`에 청킹-stale 케이스를 넣어 확인했다(뮤테이션: 모델-only 쿼리로 되돌리면 red).
 - **거버넌스:** REQ-IDX 9번 **본문 수정**은 사람 승인 사안이라 `LLMHUB_DOC_EDIT_APPROVED=1`로 커밋한다. 사용자가 이 변경을 승인했다. 체크리스트 항목도 함께 추가.
+
+## [2026-07-11] LOW 항목 마무리 — 고친 것과 v0 스코프로 남긴 것
+리뷰 L-1~L-12를 처리했다. 사람이 "LOW도 마무리치자"고 했다.
+- **고침(테스트/뮤테이션 확인):** L-1(재업로드 시 구 원본 삭제 — `FileStorage.delete` 추가, 디스크 누적 방지) · L-2(`toBytes`의 DataBuffer를 try/finally로 항상 해제) · L-5(`document.uploaded_by` FK를 `ON DELETE SET NULL`로, V4 — 미래의 사용자 삭제가 FK로 막히지 않게) · L-7(스트림 끝 잔여 SSE 프레임 파싱) · L-8(`useChat`에 `id=sessionId`) · L-10(backend Dockerfile uid를 1001로 고정).
+- **v0 스코프로 남김(이유 기록):**
+  - **L-3, L-4:** 이미 리뷰에서 무해로 판정(단일 구독 캡처, persist 경로 로그 없음). 조치 없음.
+  - **L-6 (조각 _id 충돌):** `_id = documentId:runId:location`. 현재 `TokenChunkingStrategy`는 location이 인덱스 기반이라 한 run 안에서 유일하다 — 충돌 없음. 미래 청킹 전략이 중복 location을 내면 문제이므로, 이는 **전략 계약**(한 문서의 조각 location은 유일해야 한다)이지 현재 버그가 아니다.
+  - **L-9 (Keycloak healthcheck):** KC 26 이미지는 minimal(curl/wget/셸 부재)이라 compose healthcheck 명령을 깔끔히 넣기 어렵다. 위험은 좁다 — 프론트는 기동 시 KC를 부르지 않고, 브라우저가 로그인 때 KC(8081 publish)를 직접 친다. KC가 준비되기 전 ~수십 초 안에 로그인하면 실패할 수 있는 정도. 제대로 된 probe와 함께 재검토.
+  - **L-11 (업로드 MIME 스니핑 없음):** MIME이 클라이언트 제공값이다. 내용 스니핑(magic bytes)은 v0 범위를 넘는 기능이고, 허용목록 + ADMIN 전용이라 영향이 제한적이다.
+  - **L-12:** 버그가 아니라 확인 노트(작업 트리 `.env`에 실 시크릿, 커밋 대상 파일은 깨끗). 조치 없음.

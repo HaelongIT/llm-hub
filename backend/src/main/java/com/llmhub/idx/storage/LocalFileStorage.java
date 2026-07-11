@@ -42,6 +42,16 @@ public final class LocalFileStorage implements FileStorage {
 		}
 	}
 
+	@Override
+	public void delete(String key) {
+		requireSafeKey(key);
+		try {
+			Files.deleteIfExists(root.resolve(key));
+		} catch (IOException e) {
+			throw new UncheckedIOException("원본 삭제 실패: " + key, e);
+		}
+	}
+
 	/**
 	 * 키는 시스템이 생성한 단일 경로 세그먼트여야 한다.
 	 *

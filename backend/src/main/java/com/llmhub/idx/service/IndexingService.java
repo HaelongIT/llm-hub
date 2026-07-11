@@ -183,6 +183,10 @@ public final class IndexingService {
 		// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
 		chunkRepository.deleteStaleChunks(documentId, indexingRunId);
 
+		// 재업로드면 구 원본의 저장 키를 upsert가 덮어쓰기 전에 확보한다 (L-1).
+		String previousStorageKey =
+				documentRepository.findByDocKey(docKey).map(DocumentRecord::storageKey).orElse(null);
+
 		// ES가 확정된 뒤에만 PG 메타데이터를 커밋한다. ES가 실패하면 여기 도달하지 못하므로,
 		// 검색 불가인데 stale 목록에도 없는 유령 문서가 생기지 않는다 (R-3). 원본 보관(storageKey.get())도
 		// 이 시점에 일어나 색인 실패 시 고아 파일이 남지 않는다.
@@ -196,6 +200,11 @@ public final class IndexingService {
 						// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
 						chunkingStrategy.version(),
 						uploadedBy);
+
+		// 재업로드로 새 원본을 저장했다면 구 원본을 정리한다. 재색인은 같은 키를 재사용하므로 지우지 않는다 (L-1).
+		if (previousStorageKey != null && !previousStorageKey.equals(document.storageKey())) {
+			fileStorage.delete(previousStorageKey);
+		}
 
 		log.info(
 				"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",

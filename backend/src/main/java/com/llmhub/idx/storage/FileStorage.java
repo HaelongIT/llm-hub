@@ -21,4 +21,7 @@ public interface FileStorage {
 
 	/** 저장 키로 원본을 읽는다. 재색인은 이 원본에서 수행한다 (S16). */
 	byte[] read(String key);
+
+	/** 저장 키의 원본을 지운다. 재업로드로 새 원본이 들어오면 구 원본을 정리한다 (L-1). 없으면 조용히 지나간다. */
+	void delete(String key);
 }

@@ -8,10 +8,12 @@ import com.llmhub.idx.service.DocumentRepository;
 import com.llmhub.support.PostgresInitializer;
 import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
@@ -29,6 +31,25 @@ class PostgresDocumentRepositoryTest {
 	@Autowired private DocumentRepository repository;
 	@Autowired private DocumentJpaRepository jpaRepository;
 	@Autowired private AppUserRepository userRepository;
+	@Autowired private DataSource dataSource;
+
+	@Test
+	@DisplayName("문서를 올린 사용자를 삭제해도 막히지 않고 uploaded_by가 null이 된다 (L-5)")
+	void 업로더_삭제가_막히지_않는다() {
+		UUID 올린이 = userRepository.ensureExists("subject-삭제될사람-" + UUID.randomUUID());
+		repository.upsert("삭제테스트", "a.pdf", "key-del", List.of("public"), "m", "token-v0", 올린이);
+
+		// v0엔 사용자 삭제 경로가 없지만, FK가 삭제를 막으면 안 된다. DB로 직접 확인한다.
+		new JdbcTemplate(dataSource).update("delete from app_user where id = ?", 올린이);
+
+		Integer 남은 =
+				new JdbcTemplate(dataSource)
+						.queryForObject(
+								"select count(*) from document where doc_key = ? and uploaded_by is null",
+								Integer.class,
+								"삭제테스트");
+		assertThat(남은).as("사용자 삭제 후 문서는 남고 uploaded_by는 null이다 (L-5)").isEqualTo(1);
+	}
 
 	@Test
 	@DisplayName("새 doc_key는 새 document로 저장된다")

@@ -105,9 +105,13 @@ public class IndexController {
 	}
 
 	private static byte[] toBytes(DataBuffer buffer) {
-		byte[] bytes = new byte[buffer.readableByteCount()];
-		buffer.read(bytes);
-		DataBufferUtils.release(buffer);
-		return bytes;
+		// 읽는 도중 예외가 나도 버퍼를 반드시 해제한다. finally가 없으면 그 경로에서 조인 버퍼가 샌다 (L-2).
+		try {
+			byte[] bytes = new byte[buffer.readableByteCount()];
+			buffer.read(bytes);
+			return bytes;
+		} finally {
+			DataBufferUtils.release(buffer);
+		}
 	}
 }

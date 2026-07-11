@@ -109,6 +109,22 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("재업로드하면 구 원본 파일이 지워진다 — 디스크가 계속 늘지 않는다 (L-1)")
+	void 재업로드는_구_원본을_지운다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
+		IndexResult 구 = service.index(요청("규정", "규정.txt", List.of("public")));
+		String 구_저장키 = documents.byId.get(구.documentId()).storageKey();
+
+		service.index(요청("규정", "규정.txt", List.of("public"))); // 재업로드 → 새 원본, 구 원본 삭제
+
+		String 신_저장키 = documents.byId.get(구.documentId()).storageKey();
+		assertThat(신_저장키).as("재업로드는 새 키로 저장한다").isNotEqualTo(구_저장키);
+		assertThatThrownBy(() -> new LocalFileStorage(root).read(구_저장키))
+				.as("구 원본은 지워져 더 읽을 수 없다 (L-1)")
+				.isInstanceOf(java.io.UncheckedIOException.class);
+	}
+
+	@Test
 	@DisplayName("허용되지 않은 확장자는 색인 이전에 거부된다")
 	void 허용되지_않은_확장자를_거부한다(@TempDir Path root) {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
