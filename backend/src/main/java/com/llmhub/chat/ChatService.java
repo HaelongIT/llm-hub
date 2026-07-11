@@ -178,10 +178,10 @@ public final class ChatService {
 		String sourcesJson = toJson(sources);
 
 		Blocking.run(
-						() -> {
-							historyRepository.append(sessionId, Message.user(question), null);
-							historyRepository.append(sessionId, Message.assistant(answer), sourcesJson);
-						})
+						() ->
+								// 질문+답변을 한 트랜잭션으로. 답변 저장이 실패하면 답변 없는 질문이 남지 않는다 (R-12).
+								historyRepository.appendTurn(
+										sessionId, Message.user(question), Message.assistant(answer), sourcesJson))
 				.doOnError(e -> log.error("이력 저장 실패 traceId={} — 사용자 응답은 정상이다", traceId, e))
 				.onErrorComplete()
 				.subscribe();

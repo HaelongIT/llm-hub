@@ -90,4 +90,10 @@ tasks.withType<Test> {
 	useJUnitPlatform()
 	// BlockHound는 네이티브 메서드를 재정의한다. JDK 13+ 에서는 이 플래그가 없으면 동작하지 않는다.
 	jvmArgs("-XX:+AllowRedefinitionToAddDeleteMethods")
+	// BlockHound는 JVM 전역으로 클래스를 계측한다. 한 JVM에서 44개 테스트 클래스 + 여러 Spring 컨텍스트가
+	// 누적되면 계측 에이전트의 네이티브 할당이 실패한다(java.lang.instrument: can't create name string).
+	// 테스트 JVM을 주기적으로 재활용해 누적을 끊는다(fork는 순차 실행되므로 Testcontainers 피크 자원은
+	// 그대로다). 순서 의존도 함께 줄인다 — 각 fork는 무장되지 않은 새 JVM에서 시작한다 (리뷰 #5).
+	setForkEvery(15)
+	maxHeapSize = "2g"
 }

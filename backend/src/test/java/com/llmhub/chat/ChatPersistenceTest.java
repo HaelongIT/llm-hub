@@ -287,6 +287,12 @@ class ChatPersistenceTest {
 			저장된.add(new 저장된_메시지(message, sourcesJson));
 			저장_완료.countDown();
 		}
+
+		@Override
+		public void appendTurn(UUID sessionId, Message user, Message assistant, String sourcesJson) {
+			append(sessionId, user, null);
+			append(sessionId, assistant, sourcesJson);
+		}
 	}
 
 	private static final class 감사_대역 implements AuditLogRepository {

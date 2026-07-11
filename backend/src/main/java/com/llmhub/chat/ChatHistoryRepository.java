@@ -28,4 +28,15 @@ public interface ChatHistoryRepository {
 	 * @param sourcesJson assistant 응답의 근거 스냅샷. "그 응답 시점에 무엇을 봤나"의 박제다. user 메시지면 null.
 	 */
 	void append(UUID sessionId, Message message, String sourcesJson);
+
+	/**
+	 * 한 턴(질문 + 답변)을 <b>한 트랜잭션으로</b> 저장하고 세션 활동 시각을 갱신한다.
+	 *
+	 * <p>질문과 답변을 별도 트랜잭션으로 넣으면, 답변 저장이 실패했을 때 <b>답변 없는 질문</b>만 이력에 남는다 (R-12).
+	 * 하나로 묶어 함께 커밋하거나 함께 롤백한다. 세션 {@code updated_at}도 여기서 갱신해 "최근 활동순"을 유지한다
+	 * (R-10).
+	 *
+	 * @param sourcesJson answer의 근거 스냅샷.
+	 */
+	void appendTurn(UUID sessionId, Message user, Message assistant, String sourcesJson);
 }

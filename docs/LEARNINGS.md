@@ -381,3 +381,9 @@
 - **TraceIdErrorAttributes(SEC-3):** 에러 본문이 예외 문구를 노출하도록 바꿔도 무검출이었다. traceId는 싣고 내부 문구(ES 인덱스명·주소)는 안 싣는지 검증. **함정: `MockServerWebExchange`는 `LOG_ID_ATTRIBUTE`를 기본값으로 채운다** — "traceId 없음" 케이스는 mock으로 못 만든다(운영에선 TraceIdWebFilter가 항상 심으니 무의미).
 - **V0EndToEnd 근거→LLM:** 대역 모델이 **프롬프트를 무시하고 고정 문자열만 흘려**, 근거 주입을 제거해도 통과했다(`contains(근거)`가 매칭되는 곳은 LLM 출력이 아니라 `event:sources` 프레임). 또 주석은 "근거를 되뇐다"고 앞서 있었다. **결정적 단언:** 대역이 시스템 프롬프트를 되뇌게 하고, `"[근거]"`(시스템 프롬프트에만 있고 sources JSON엔 없음) 포함 + 빈 대체 문구 부재를 확인. 근거 주입 제거 시 red 됨을 뮤테이션으로 확인.
 - **교훈:** "테스트가 무엇을 강제하지 않는지"도 발견이다. 통과하는 스위트가 방어의 부재를 숨길 수 있다 — 뮤테이션(프로덕션 코드를 일부러 뒤집기)만이 그것을 드러낸다.
+
+## [2026-07-11] 이력 한 턴은 한 트랜잭션, 활동 시각도 함께 (R-10, R-12) + BlockHound 계측 누적 (테스트 #5)
+- **R-12:** `ChatService`가 user append와 assistant append를 **별도 `@Transactional` 메서드 2번**으로 불러, 답변 저장이 실패하면 답변 없는 질문만 이력에 남았다(fire-and-forget이라 로그만). `appendTurn(user, assistant, sourcesJson)` 단일 트랜잭션으로 묶었다.
+- **R-10:** 세션 `updated_at`이 생성 때만 세팅되고 메시지가 붙어도 갱신되지 않아, 사이드바 "최근 활동순"이 사실상 "생성순"이었다. `appendTurn`이 `ChatSessionEntity.touch(now)`로 갱신한다(영속 상태라 커밋 시 dirty checking으로 UPDATE).
+- **테스트 함정 — `@Transactional`은 프록시가 있어야 한다.** 원자성(R-12)을 테스트하려고 리포지토리를 `new`로 만들면 `@Transactional`이 안 걸려(프록시 없음) 각 save가 독립 트랜잭션이 된다 → 옛 버그 동작이 재현돼 테스트가 거짓 통과·거짓 실패한다. **오토와이어된 빈**을 써야 한다. 시각 갱신(R-10)은 결정적으로 보려고 `@TestConfiguration`에서 `@Primary` 가변 Clock을 주입했다. null content로 not-null 위반을 일으켜 롤백을 검증(뮤테이션으로 touch·@Transactional 제거 시 red 확인).
+- **BlockHound는 JVM 전역·영구 계측이다.** 44개 테스트 클래스 + 여러 Spring 컨텍스트가 한 JVM에 누적되니, @SpringBootTest 하나를 더했더니 계측 에이전트의 네이티브 할당이 실패했다: `java.lang.instrument ASSERTION FAILED: can't create name string`(JPLISAgent.c). 테스트 단언 실패가 아니라 **JVM 크래시**라 Gradle이 `TestSuiteExecutionException: Could not complete execution`으로 보고한다 — 헷갈리기 쉽다. **해결: `setForkEvery(15)` + `maxHeapSize=2g`.** JVM을 주기적으로 재활용해 누적을 끊는다. fork는 순차 실행이라 Testcontainers 피크 자원(ES/PG 각 1개)은 그대로다. 리뷰가 예측한 "forkEvery 부재" 취약성이 실제로 터졌다.

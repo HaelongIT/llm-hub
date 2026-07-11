@@ -72,4 +72,16 @@ public class PostgresChatHistoryRepository implements ChatHistoryRepository {
 				new ChatMessageEntity(
 						UUID.randomUUID(), sessionId, message.role(), message.content(), sourcesJson, Instant.now(clock)));
 	}
+
+	@Override
+	@Transactional
+	public void appendTurn(UUID sessionId, Message user, Message assistant, String sourcesJson) {
+		Instant now = Instant.now(clock);
+		// 한 트랜잭션이다. 답변 저장이 실패하면 질문도 롤백된다 — 답변 없는 질문이 남지 않는다 (R-12).
+		messages.save(new ChatMessageEntity(UUID.randomUUID(), sessionId, user.role(), user.content(), null, now));
+		messages.save(
+				new ChatMessageEntity(UUID.randomUUID(), sessionId, assistant.role(), assistant.content(), sourcesJson, now));
+		// 활동 시각 갱신. 없으면 "최근 활동순"이 "생성순"이 된다 (R-10).
+		sessions.findById(sessionId).ifPresent(s -> s.touch(now));
+	}
 }

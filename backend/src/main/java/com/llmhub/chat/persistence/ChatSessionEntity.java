@@ -35,6 +35,14 @@ class ChatSessionEntity {
 		this.updatedAt = now;
 	}
 
+	/**
+	 * 활동 시각을 갱신한다. 메시지가 붙을 때마다 불러야 사이드바 "최근 활동순"이 "생성순"으로 굳지 않는다 (R-10).
+	 * 영속 상태에서 부르면 트랜잭션 커밋 시 dirty checking으로 UPDATE된다.
+	 */
+	void touch(Instant now) {
+		this.updatedAt = now;
+	}
+
 	UUID getId() {
 		return id;
 	}

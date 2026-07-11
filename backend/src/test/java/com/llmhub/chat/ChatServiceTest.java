@@ -75,6 +75,10 @@ class ChatServiceTest {
 			public void append(java.util.UUID sessionId, Message message, String sourcesJson) {}
 
 			@Override
+			public void appendTurn(
+					java.util.UUID sessionId, Message user, Message assistant, String sourcesJson) {}
+
+			@Override
 			public List<SessionSummary> sessionsOf(java.util.UUID userId) {
 				return List.of();
 			}

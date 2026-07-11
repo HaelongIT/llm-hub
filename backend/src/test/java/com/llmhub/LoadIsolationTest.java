@@ -203,6 +203,12 @@ class LoadIsolationTest {
 					저장_스레드.add(Thread.currentThread().getName());
 					블로킹한다(50);
 				}
+
+				@Override
+				public void appendTurn(UUID sessionId, Message user, Message assistant, String sourcesJson) {
+					append(sessionId, user, null);
+					append(sessionId, assistant, sourcesJson);
+				}
 			};
 		}
 
