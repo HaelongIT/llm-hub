@@ -1,48 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-	DONE_LINE,
-	parseSseFrame,
-	toSseLine,
-	UiMessageStreamTranslator,
-} from './ui-message-stream.ts';
+import { DONE_LINE, translateCoreStream } from './ui-message-stream.ts';
 
 /**
  * BFF 번역을 실제 스트림 위에서 확인한다.
  *
  * 코어가 보내는 바이트를 그대로 흘려 넣고, useChat이 읽을 줄들이 나오는지 본다. 청크 경계가 SSE 프레임
  * 중간을 자르는 경우가 실제로 일어나므로 그것도 재현한다.
+ *
+ * <b>라우트의 실제 함수를 부른다 (R-14).</b> 예전엔 여기 복제본을 두었는데, 그러면 라우트의 끊김 처리
+ * (try/catch, SEC-3)를 지워도 이 테스트가 통과했다. 이제 라우트와 같은 함수를 검증한다.
  */
-
-/** BFF 라우트의 변환 로직과 동일하다. 라우트는 이것을 Response로 감싸기만 한다. */
 function translate(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-	const decoder = new TextDecoder();
-	const encoder = new TextEncoder();
-	const translator = new UiMessageStreamTranslator('msg-1');
-	let buffer = '';
-
-	return new ReadableStream({
-		async start(controller) {
-			const emit = (line: string) => controller.enqueue(encoder.encode(line));
-			const reader = upstream.getReader();
-			for (;;) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				buffer += decoder.decode(value, { stream: true });
-				const frames = buffer.split('\n\n');
-				buffer = frames.pop() ?? '';
-				for (const frame of frames) {
-					const event = parseSseFrame(frame);
-					if (!event) continue;
-					for (const part of translator.translate(event)) emit(toSseLine(part));
-				}
-			}
-			for (const part of translator.finish()) emit(toSseLine(part));
-			emit(DONE_LINE);
-			controller.close();
-		},
-	});
+	return translateCoreStream(upstream, 'msg-1');
 }
 
 function 코어_스트림(chunks: string[]): ReadableStream<Uint8Array> {
@@ -139,5 +110,42 @@ describe('BFF 스트림 번역', () => {
 		const parts = 파트들(await 읽는다(translate(코어)));
 
 		assert.equal(parts.at(-1)?.type, 'error');
+	});
+
+	it('클라이언트가 스트림을 취소하면 코어 업스트림도 취소된다 (R-17)', async () => {
+		// 클라이언트가 끊었는데 BFF가 코어를 끝까지 읽으면 코어는 LLM 토큰을 계속 만든다. 취소를 전파한다.
+		let 업스트림_취소됨 = false;
+		const 코어 = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode('event:text\ndata:부분\n\n'));
+			},
+			cancel() {
+				업스트림_취소됨 = true;
+			},
+		});
+
+		const out = translate(코어);
+		const reader = out.getReader();
+		await reader.read(); // 한 청크 받고
+		await reader.cancel(); // 탭 닫기
+
+		assert.ok(업스트림_취소됨, '반환 스트림 취소가 코어 업스트림 취소로 전파되어야 한다 (R-17)');
+	});
+
+	it('업스트림 읽기가 예외로 터지면 고정 문구로 닫고 내부 예외를 흘리지 않는다 (SEC-3)', async () => {
+		// 이 분기가 R-14의 핵심이다. 복제본에는 try/catch가 없어, 라우트의 이 처리를 지워도 무검출이었다.
+		const 폭발하는_코어 = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.error(new Error('ES 10.0.0.5:9200 연결 실패 — 이 문구가 새면 안 된다'));
+			},
+		});
+
+		const wire = await 읽는다(translate(폭발하는_코어));
+		const parts = 파트들(wire);
+
+		assert.equal(parts.at(-1)?.type, 'error');
+		assert.equal(parts.at(-1)?.errorText, '요청을 처리하지 못했습니다.');
+		assert.ok(!wire.includes('10.0.0.5'), '내부 예외 문구가 브라우저로 새면 안 된다 (SEC-3)');
+		assert.ok(wire.endsWith(DONE_LINE), '[DONE]으로 끝난다');
 	});
 });

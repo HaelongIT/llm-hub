@@ -126,3 +126,66 @@ export function toSseLine(part: UiPart): string {
 }
 
 export const DONE_LINE = 'data: [DONE]\n\n';
+
+/**
+ * 코어의 SSE 바이트 스트림을 useChat이 읽을 UI Message Stream 바이트 스트림으로 번역한다.
+ *
+ * <b>라우트와 테스트가 이 한 함수를 공유해야 한다 (R-14).</b> 라우트에만 두고 테스트가 복제하면, 읽기 루프의
+ * try/catch(업스트림이 끊기면 고정 문구로 닫는다 — SEC-3) 같은 분기가 복제본에서 빠져도 아무도 잡지 못한다.
+ *
+ * @param messageId 기본은 무작위. 테스트는 결정성을 위해 고정값을 넘긴다.
+ */
+export function translateCoreStream(
+	upstream: ReadableStream<Uint8Array>,
+	messageId: string = crypto.randomUUID(),
+): ReadableStream<Uint8Array> {
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
+	const translator = new UiMessageStreamTranslator(messageId);
+	let buffer = '';
+	const reader = upstream.getReader();
+
+	return new ReadableStream({
+		async start(controller) {
+			const emit = (line: string) => controller.enqueue(encoder.encode(line));
+
+			try {
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) break;
+
+					buffer += decoder.decode(value, { stream: true });
+
+					// SSE 프레임은 빈 줄로 구분된다. 마지막 조각은 다음 청크와 이어질 수 있으므로 남긴다.
+					const frames = buffer.split('\n\n');
+					buffer = frames.pop() ?? '';
+
+					for (const frame of frames) {
+						const event = parseSseFrame(frame);
+						if (!event) continue;
+						for (const part of translator.translate(event)) {
+							emit(toSseLine(part));
+						}
+					}
+				}
+				// 코어가 done/error 없이 끊었다면 error로 닫는다. 무한 대기를 만들지 않는다 (REL-1).
+				for (const part of translator.finish()) {
+					emit(toSseLine(part));
+				}
+			} catch {
+				// 내부 예외 문구를 브라우저로 흘리지 않는다 (SEC-3). 원인은 서버 로그에 있다.
+				for (const part of translator.translate({ event: 'error', data: '요청을 처리하지 못했습니다.' })) {
+					emit(toSseLine(part));
+				}
+			} finally {
+				emit(DONE_LINE);
+				controller.close();
+			}
+		},
+		cancel(reason) {
+			// 클라이언트가 끊으면 코어→LLM 스트림도 끊는다. 버려진 스트림이 LLM 토큰 생성과 커넥션을
+			// 계속 낭비하지 않게 한다 (R-17). 코어는 이 취소를 받아 Flux를 취소하고 감사에 CANCELLED로 남긴다.
+			return reader.cancel(reason);
+		},
+	});
+}

@@ -1,12 +1,6 @@
 import { bearerToken } from '@/lib/core';
 import { relayFailure } from '@/lib/upstream';
-import {
-	DONE_LINE,
-	parseSseFrame,
-	toSseLine,
-	UiMessageStreamTranslator,
-	UI_MESSAGE_STREAM_HEADERS,
-} from '@/lib/ui-message-stream';
+import { translateCoreStream, UI_MESSAGE_STREAM_HEADERS } from '@/lib/ui-message-stream';
 
 /**
  * BFF. 코어의 이벤트 타입 SSE를 AI SDK의 UI Message Stream으로 번역한다 (docs/01).
@@ -39,6 +33,8 @@ export async function POST(request: Request) {
 			sessionId: body.sessionId ?? null,
 			question: lastUserText(body.messages),
 		}),
+		// 클라이언트가 끊으면 코어 호출도 끊는다. 코어는 이 취소로 LLM 스트림을 멈춘다 (R-17).
+		signal: request.signal,
 	});
 
 	// 코어의 상태를 뭉개지 않는다. 404(남의 세션) · 400(질문 길이) · 401(만료)을 클라이언트가
@@ -47,7 +43,7 @@ export async function POST(request: Request) {
 		return relayFailure(upstream);
 	}
 
-	return new Response(translate(upstream.body), { headers: UI_MESSAGE_STREAM_HEADERS });
+	return new Response(translateCoreStream(upstream.body), { headers: UI_MESSAGE_STREAM_HEADERS });
 }
 
 /** 검색 쿼리는 마지막 사용자 질문 그대로다 (S2). */
@@ -61,49 +57,3 @@ function lastUserText(messages: Array<{ role: string; parts?: Array<{ type: stri
 	);
 }
 
-function translate(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-	const decoder = new TextDecoder();
-	const encoder = new TextEncoder();
-	const translator = new UiMessageStreamTranslator(crypto.randomUUID());
-	let buffer = '';
-
-	return new ReadableStream({
-		async start(controller) {
-			const emit = (line: string) => controller.enqueue(encoder.encode(line));
-			const reader = upstream.getReader();
-
-			try {
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) break;
-
-					buffer += decoder.decode(value, { stream: true });
-
-					// SSE 프레임은 빈 줄로 구분된다. 마지막 조각은 다음 청크와 이어질 수 있으므로 남긴다.
-					const frames = buffer.split('\n\n');
-					buffer = frames.pop() ?? '';
-
-					for (const frame of frames) {
-						const event = parseSseFrame(frame);
-						if (!event) continue;
-						for (const part of translator.translate(event)) {
-							emit(toSseLine(part));
-						}
-					}
-				}
-				// 코어가 done/error 없이 끊었다면 error로 닫는다. 무한 대기를 만들지 않는다 (REL-1).
-				for (const part of translator.finish()) {
-					emit(toSseLine(part));
-				}
-			} catch {
-				// 내부 예외 문구를 브라우저로 흘리지 않는다 (SEC-3). 원인은 서버 로그에 있다.
-				for (const part of translator.translate({ event: 'error', data: '요청을 처리하지 못했습니다.' })) {
-					emit(toSseLine(part));
-				}
-			} finally {
-				emit(DONE_LINE);
-				controller.close();
-			}
-		},
-	});
-}

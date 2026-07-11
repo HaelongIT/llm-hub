@@ -393,3 +393,8 @@
 - **수정:** `join(file.content(), maxUploadBytes)` 오버로드로 조인 단계에서 거부한다. 초과 시 `DataBufferLimitException` → `onErrorMap`으로 `UploadRejectedException`(400)에 맞춘다. 상한은 컨트롤러에 `IdxProperties` 주입.
 - **테스트 결정성 함정:** 조인 상한과 validator 상한이 **같은 값**(maxUploadBytes)이라, 상한 초과 업로드는 조인 수정이 없어도 validator가 잡아 400을 준다 → 상태코드만 보는 테스트는 **수정 유무를 구분 못 한다**(리뷰가 경고한 "강제 못 하는 테스트"). **결정적으로 만드는 법:** 색인 서비스를 검증하지 않는 `@MockitoBean`으로 두면, 조인 상한이 없을 때 상한 초과 내용이 서비스까지 도달해 200이 된다 → 테스트가 그 차이를 잡는다. `verify(never()).index(...)`로 "서비스에 닿지 않았음"도 단언. 뮤테이션(상한 제거)으로 red 확인.
 - **주의:** 이 저장소는 보통 손으로 쓴 대역을 쓰지만, 여기선 "서비스 호출 여부"를 구분해야 결정적이라 `@MockitoBean`(Spring Boot 3.4+; `@MockBean` 대체)을 예외적으로 썼다. `IndexingService`가 final이지만 최신 Mockito(inline)가 mock한다.
+
+## [2026-07-11] BFF 스트림 번역을 라우트와 테스트가 공유 + 취소 전파 (R-14, R-17)
+- **R-14:** 라우트의 스트림 레벨 `translate`(끊김 시 try/catch로 고정 문구 닫기 — SEC-3)가 export되지 않아, `bff-stream.test.ts`가 그것을 **손으로 복제**해 테스트했다. 복제본엔 try/catch가 없었고 주석은 "동일하다"고 앞서 있었다. 라우트의 catch를 지우거나 `String(e)`로 바꿔 내부 예외를 노출해도 무검출이었다. **수정:** `translateCoreStream`을 `lib/ui-message-stream.ts`로 추출해 라우트와 테스트가 같은 함수를 쓴다. 끊김 시 고정 문구·내부 예외 미노출을 검증하는 테스트 추가(뮤테이션으로 red 확인).
+- **R-17:** 라우트의 코어 fetch에 `AbortSignal`이 없고 반환 스트림에 `cancel()`이 없어, 클라이언트가 탭을 닫아도 BFF는 코어를 끝까지 읽고 코어는 LLM 토큰을 끝까지 만들었다. **수정 두 겹:** (1) fetch에 `signal: request.signal` — 클라이언트 끊김이 코어 호출을 취소한다. (2) `translateCoreStream`의 ReadableStream에 `cancel()` 핸들러 — 반환 스트림 취소를 업스트림 reader 취소로 전파한다. 코어는 이 취소로 Flux를 취소하고, R-5 덕에 감사에 CANCELLED로 남긴다. 취소 전파를 테스트로 검증(뮤테이션 확인).
+- **주의:** `ReadableStream`의 `cancel(reason)`에서 업스트림 reader를 취소하려면 reader를 `start` 밖(생성자 스코프)에서 만들어 둘이 공유해야 한다. `start` 안에서 만들면 `cancel`이 접근할 수 없다.
