@@ -168,6 +168,14 @@ export function translateCoreStream(
 						}
 					}
 				}
+				// 스트림 끝에 남은 마지막 프레임을 파싱한다. 코어가 마지막 프레임을 `\n\n` 없이 끝내면 buffer에
+				// 남아 사라진다 — 그러면 done을 못 보고 finish()가 오류로 닫는다 (L-7).
+				const leftover = parseSseFrame(buffer);
+				if (leftover) {
+					for (const part of translator.translate(leftover)) {
+						emit(toSseLine(part));
+					}
+				}
 				// 코어가 done/error 없이 끊었다면 error로 닫는다. 무한 대기를 만들지 않는다 (REL-1).
 				for (const part of translator.finish()) {
 					emit(toSseLine(part));

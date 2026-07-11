@@ -132,6 +132,16 @@ describe('BFF 스트림 번역', () => {
 		assert.ok(업스트림_취소됨, '반환 스트림 취소가 코어 업스트림 취소로 전파되어야 한다 (R-17)');
 	});
 
+	it('마지막 프레임이 \\n\\n 없이 끝나도 잃지 않는다 (L-7)', async () => {
+		// 코어가 done 프레임을 종결 빈 줄 없이 보내면 buffer에 남아 사라진다 → finish()가 오류로 닫는다.
+		const 코어 = 코어_스트림(['event:text\ndata:답\n\n', 'event:done\ndata:trace-1']); // 끝에 \n\n 없음
+
+		const parts = 파트들(await 읽는다(translate(코어)));
+
+		assert.equal(parts.at(-1)?.type, 'finish', '마지막 프레임을 파싱해 정상 종료(finish)로 닫는다');
+		assert.ok(!parts.some((p) => p.type === 'error'), '오류로 닫지 않는다');
+	});
+
 	it('업스트림 읽기가 예외로 터지면 고정 문구로 닫고 내부 예외를 흘리지 않는다 (SEC-3)', async () => {
 		// 이 분기가 R-14의 핵심이다. 복제본에는 try/catch가 없어, 라우트의 이 처리를 지워도 무검출이었다.
 		const 폭발하는_코어 = new ReadableStream<Uint8Array>({

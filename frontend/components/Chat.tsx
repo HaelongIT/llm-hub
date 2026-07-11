@@ -30,7 +30,9 @@ export function Chat() {
 		() => new DefaultChatTransport({ api: '/api/chat/stream', body: { sessionId } }),
 		[sessionId],
 	);
-	const { messages, setMessages, sendMessage, status, error } = useChat({ transport });
+	// id에 sessionId를 준다. 없으면 useChat이 세션을 바꿔도 같은 인스턴스를 재사용해, 이전 세션의 error
+	// 배너가 남고 스트리밍 중 전환하면 메시지가 섞인다 (L-8). 세션마다 별개 대화로 다룬다.
+	const { messages, setMessages, sendMessage, status, error } = useChat({ id: sessionId ?? undefined, transport });
 
 	// 세션을 바꾸면 그 세션의 이력을 불러온다. 세션이 없으면 화면을 비운다.
 	useEffect(() => {
