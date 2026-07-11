@@ -1,7 +1,7 @@
 {
   "realm": "llmhub",
   "enabled": true,
-  "sslRequired": "none",
+  "sslRequired": "external",
   "roles": {
     "realm": [
       { "name": "USER", "description": "일반 사용자. RoleTagMapper가 {public} 태그로 매핑한다 (S3, E4)." },
