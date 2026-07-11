@@ -23,6 +23,24 @@ const keycloak = {
 	clientSecret: process.env.KEYCLOAK_CLIENT_SECRET!,
 };
 
+/**
+ * access token에서 앱 역할(USER/ADMIN)만 뽑는다. UI가 "역할" 칩으로 governed retrieval을 드러내는 데
+ * 쓴다 — 자기 역할이라 민감정보가 아니다. 태그로 옮기지 않는다(역할→태그 매핑은 백엔드 소유).
+ */
+function appRole(accessToken?: string): 'USER' | 'ADMIN' | undefined {
+	if (!accessToken) return undefined;
+	try {
+		const [, payload] = accessToken.split('.');
+		const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+		const roles: string[] = claims?.realm_access?.roles ?? [];
+		if (roles.includes('ADMIN')) return 'ADMIN';
+		if (roles.includes('USER')) return 'USER';
+	} catch {
+		// 파싱 실패는 조용히 무시한다. 역할 칩은 부가 정보다.
+	}
+	return undefined;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
 	providers: [
 		Keycloak({
@@ -41,6 +59,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 					accessToken: account.access_token,
 					refreshToken: account.refresh_token,
 					expiresAt: account.expires_at,
+					role: appRole(account.access_token),
 				};
 			}
 
@@ -56,6 +75,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 			// 노출되므로, 토큰은 JWT 쿠키에만 두고 BFF가 서버측(lib/core bearerToken)에서만 꺼낸다.
 			// error는 재로그인 판단에 필요하고 민감정보가 아니므로 노출한다.
 			session.error = token.error;
+			if (session.user) {
+				session.user.role = token.role;
+			}
 			return session;
 		},
 	},

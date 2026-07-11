@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { relativeTime } from './time.ts';
+import { dateGroup, relativeTime } from './time.ts';
 
 const NOW = Date.parse('2026-07-11T12:00:00Z');
 
@@ -28,5 +28,24 @@ describe('상대 시각', () => {
 
 	it('잘못된 값은 빈 문자열', () => {
 		assert.equal(relativeTime('not-a-date', NOW), '');
+	});
+});
+
+describe('날짜 그룹', () => {
+	// 로컬 생성자로 만들어 실행 TZ와 무관하게 달력일 차이를 고정한다.
+	const now = new Date(2026, 6, 11, 14, 0).getTime();
+	const at = (y: number, m: number, d: number) => new Date(y, m, d, 9, 0).toISOString();
+
+	it('같은 날은 오늘', () => {
+		assert.equal(dateGroup(at(2026, 6, 11), now), '오늘');
+	});
+	it('하루 전은 어제', () => {
+		assert.equal(dateGroup(at(2026, 6, 10), now), '어제');
+	});
+	it('며칠 전은 이번 주', () => {
+		assert.equal(dateGroup(at(2026, 6, 8), now), '이번 주');
+	});
+	it('일주일 넘으면 이전', () => {
+		assert.equal(dateGroup(at(2026, 6, 1), now), '이전');
 	});
 });

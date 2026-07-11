@@ -36,6 +36,7 @@ export default async function Home() {
 	}
 
 	const who = session.user?.name || session.user?.email || '사용자';
+	const role = session.user?.role;
 
 	return (
 		<div className="app">
@@ -48,9 +49,16 @@ export default async function Home() {
 				<Sessions />
 
 				<div className="sidebar__foot">
-					<span className="sidebar__user" title={who}>
-						{who}
-					</span>
+					<div className="sidebar__id">
+						<span className="sidebar__user" title={who}>
+							{who}
+						</span>
+						{role && (
+							<span className="rolechip" title="이 역할의 접근 권한으로 문서를 검색합니다">
+								{role}
+							</span>
+						)}
+					</div>
 					<form
 						action={async () => {
 							'use server';
