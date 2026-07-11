@@ -346,4 +346,26 @@
 
 > 해당 없음: 도달 가능한 보안 사안 · S 항목 · 데이터 정합성 · 결정 문서
 
-**하려면:** compose 스택을 띄우고 dev 로그인 후 access token을 디코드해 `aud`·`iss`를 눈으로 확인한다. 운영 프론트 클라이언트 프로비저닝(매퍼 포함)을 문서화하거나 스크립트로 만든다.
+### 실스택 검증 결과 (2026-07-11) — 브라우저 없이 API로 확인한 것
+
+스택을 띄우고(dev override), `bootstrap-dev.sh`를 다시 돌려 **audience 매퍼를 실행 중인 Keycloak에 반영**한 뒤,
+실토큰·백엔드 API로 검증했다. 아래는 **통과**:
+
+- **R-16 (핵심, fail-closed) ✅** — 실토큰 `iss=http://localhost:8081/realms/llmhub`(설정 일치), `aud=["llmhub-backend","account"]`(매퍼가 실제로 넣음). 백엔드: 유효 토큰→200, 무토큰·잘못된 서명→401, **같은 realm 다른 클라이언트(admin-cli, aud에 llmhub-backend 없음)→401 거부**.
+- **R-3 색인 + 임베딩 ✅** — dev-admin 색인 200(chunkCount, 결정적 documentId). bge-m3 임베딩 1024차원.
+- **채팅 체인 ✅** — dev-user 질문 → `event:sources`(접근태그 검색이 근거 찾음) → qwen3 답변 `event:text` 스트리밍 → `event:done`.
+- **R-5 감사 ✅** — 완주→`outcome=COMPLETE`, 근거 전달 후 중도 취소→`outcome=CANCELLED`(V3 컬럼 live). psql로 확인.
+- **인가 ✅** — dev-user 색인→403, 세션 소유권: 소유자→200 / 남→404.
+- **LLM 설정 ✅** — 설치 불필요(Ollama에 bge-m3·qwen3:8b 이미 있음, LiteLLM config가 placeholder-*를 라우팅). 임베딩 1024차원·챗 근거기반 답변 확인.
+
+**주의:** audience 매퍼는 방금 **실행 중인 Keycloak에 추가**됐다. Keycloak 컨테이너를 재생성(볼륨 초기화)하면 `bootstrap-dev.sh`를 **다시 돌려야** 매퍼가 복원된다.
+
+### 남은 브라우저 검증 (Chrome 확장 연결 후 한 번에)
+
+실제 브라우저 로그인이 있어야 하는 것들. 런북은 계획 파일 참조.
+- **R-8** — 로그인 후 세션 목록/채팅이 되면 BFF의 `getToken` 쿠키 복호화 OK(salt/secureCookie 정확).
+- **R-14 · R-17(프론트)** — BFF 스트림 번역·클라 끊김 시 취소 전파(백엔드 취소측은 R-5로 확인됨).
+- **L-7 · L-8** — 마지막 프레임(단위 확인됨)·세션 전환 시 메시지/error 배너 비혼입.
+- **401→로그인 화면** — 토큰 만료(5분)·refresh·30분 idle 후 401→로그인. 채팅 라우트가 401을 502로 안 뭉개는지.
+
+**하려면(운영 구멍, 여전히 열림):** 운영 프론트 클라이언트 프로비저닝(audience 매퍼 포함)을 저장소에 스크립트/문서로 만든다. dev는 `bootstrap-dev.sh`가 하지만 운영 경로는 없다.
