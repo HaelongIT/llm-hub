@@ -78,8 +78,9 @@ public class PostgresDocumentRepository implements DocumentRepository {
 
 	@Override
 	@Transactional(readOnly = true)
-	public List<DocumentRecord> findStale(String currentEmbeddingModel) {
-		return jpaRepository.findByEmbeddingModelNot(currentEmbeddingModel).stream()
+	public List<DocumentRecord> findStale(String currentEmbeddingModel, String currentChunkingVersion) {
+		return jpaRepository
+				.findByEmbeddingModelNotOrChunkingVersionNot(currentEmbeddingModel, currentChunkingVersion).stream()
 				.map(PostgresDocumentRepository::toRecord)
 				.toList();
 	}
@@ -91,6 +92,7 @@ public class PostgresDocumentRepository implements DocumentRepository {
 				entity.getFilename(),
 				entity.getOriginalPath(),
 				Arrays.asList(entity.getAccessTags()),
-				entity.getEmbeddingModel());
+				entity.getEmbeddingModel(),
+				entity.getChunkingVersion());
 	}
 }

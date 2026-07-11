@@ -14,7 +14,8 @@ public record DocumentRecord(
 		String filename,
 		String storageKey,
 		List<String> accessTags,
-		String embeddingModel) {
+		String embeddingModel,
+		String chunkingVersion) {
 
 	public DocumentRecord {
 		accessTags = List.copyOf(accessTags);

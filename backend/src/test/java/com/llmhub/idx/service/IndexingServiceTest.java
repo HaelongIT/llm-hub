@@ -423,6 +423,27 @@ class IndexingServiceTest {
 				.satisfies(d -> {
 					assertThat(d.docKey()).isEqualTo("옛문서");
 					assertThat(d.embeddingModel()).isEqualTo("옛-모델");
+					assertThat(d.reason()).isEqualTo(StaleReason.MODEL);
+				});
+	}
+
+	@Test
+	@DisplayName("청킹 전략이 바뀌면 모델이 같아도 재색인 대상으로 뜬다 (E11, OQ-010)")
+	void 청킹_버전이_다르면_대상이다(@TempDir Path root) {
+		준비한다(root, new FakeEmbeddingClient(설정된_임베딩)); // 모델 bge-m3, 청킹 token-v0
+		service.index(요청("문서", "문서.txt", List.of("public")));
+
+		// 같은 저장소·같은 모델, 청킹 전략만 교체한다 (E11).
+		service = 전략을_바꾼다(root, new 대역_청킹("sentence-v1"));
+
+		assertThat(service.staleDocuments())
+				.as("청킹 버전만 달라도 재색인 대상이다 (OQ-010)")
+				.singleElement()
+				.satisfies(d -> {
+					assertThat(d.docKey()).isEqualTo("문서");
+					assertThat(d.embeddingModel()).as("모델은 그대로다").isEqualTo("bge-m3");
+					assertThat(d.chunkingVersion()).as("저장된 옛 청킹 버전").isEqualTo("token-v0");
+					assertThat(d.reason()).isEqualTo(StaleReason.CHUNKING);
 				});
 	}
 
@@ -571,7 +592,8 @@ class IndexingServiceTest {
 			// 조각의 document_id와 저장된 document.id가 일치한다 (R-3).
 			String id = idByDocKey.computeIfAbsent(docKey, k -> DocumentId.of(k).toString());
 			DocumentRecord record =
-					new DocumentRecord(id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel);
+					new DocumentRecord(
+							id, docKey, filename, storageKey, List.copyOf(accessTags), embeddingModel, chunkingVersion);
 			byId.put(id, record);
 			return record;
 		}
@@ -582,8 +604,13 @@ class IndexingServiceTest {
 		}
 
 		@Override
-		public List<DocumentRecord> findStale(String currentEmbeddingModel) {
-			return byId.values().stream().filter(d -> !d.embeddingModel().equals(currentEmbeddingModel)).toList();
+		public List<DocumentRecord> findStale(String currentEmbeddingModel, String currentChunkingVersion) {
+			return byId.values().stream()
+					.filter(
+							d ->
+									!d.embeddingModel().equals(currentEmbeddingModel)
+											|| !d.chunkingVersion().equals(currentChunkingVersion))
+					.toList();
 		}
 	}
 }

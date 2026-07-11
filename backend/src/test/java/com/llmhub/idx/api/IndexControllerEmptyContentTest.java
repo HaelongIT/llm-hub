@@ -187,7 +187,7 @@ class IndexControllerEmptyContentTest {
 			}
 
 			@Override
-			public List<DocumentRecord> findStale(String currentEmbeddingModel) {
+			public List<DocumentRecord> findStale(String currentEmbeddingModel, String currentChunkingVersion) {
 				return List.of();
 			}
 		};

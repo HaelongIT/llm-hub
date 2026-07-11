@@ -177,7 +177,8 @@ class IndexingPipelineIntegrationTest {
 			// 서비스가 커밋 전에 DocumentId.of(docKey)로 ES 조각을 조립하므로, 대역도 같은 값을 id로 써야
 			// 조각의 document_id와 저장된 document.id가 일치한다 (R-3).
 			String id = idByDocKey.computeIfAbsent(docKey, k -> DocumentId.of(k).toString());
-			DocumentRecord record = new DocumentRecord(id, docKey, filename, storageKey, accessTags, embeddingModel);
+			DocumentRecord record =
+					new DocumentRecord(id, docKey, filename, storageKey, accessTags, embeddingModel, chunkingVersion);
 			byDocKey.put(docKey, record);
 			return record;
 		}
@@ -188,8 +189,13 @@ class IndexingPipelineIntegrationTest {
 		}
 
 		@Override
-		public List<DocumentRecord> findStale(String currentEmbeddingModel) {
-			return byDocKey.values().stream().filter(d -> !d.embeddingModel().equals(currentEmbeddingModel)).toList();
+		public List<DocumentRecord> findStale(String currentEmbeddingModel, String currentChunkingVersion) {
+			return byDocKey.values().stream()
+					.filter(
+							d ->
+									!d.embeddingModel().equals(currentEmbeddingModel)
+											|| !d.chunkingVersion().equals(currentChunkingVersion))
+					.toList();
 		}
 	}
 }

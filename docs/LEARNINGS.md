@@ -398,3 +398,10 @@
 - **R-14:** 라우트의 스트림 레벨 `translate`(끊김 시 try/catch로 고정 문구 닫기 — SEC-3)가 export되지 않아, `bff-stream.test.ts`가 그것을 **손으로 복제**해 테스트했다. 복제본엔 try/catch가 없었고 주석은 "동일하다"고 앞서 있었다. 라우트의 catch를 지우거나 `String(e)`로 바꿔 내부 예외를 노출해도 무검출이었다. **수정:** `translateCoreStream`을 `lib/ui-message-stream.ts`로 추출해 라우트와 테스트가 같은 함수를 쓴다. 끊김 시 고정 문구·내부 예외 미노출을 검증하는 테스트 추가(뮤테이션으로 red 확인).
 - **R-17:** 라우트의 코어 fetch에 `AbortSignal`이 없고 반환 스트림에 `cancel()`이 없어, 클라이언트가 탭을 닫아도 BFF는 코어를 끝까지 읽고 코어는 LLM 토큰을 끝까지 만들었다. **수정 두 겹:** (1) fetch에 `signal: request.signal` — 클라이언트 끊김이 코어 호출을 취소한다. (2) `translateCoreStream`의 ReadableStream에 `cancel()` 핸들러 — 반환 스트림 취소를 업스트림 reader 취소로 전파한다. 코어는 이 취소로 Flux를 취소하고, R-5 덕에 감사에 CANCELLED로 남긴다. 취소 전파를 테스트로 검증(뮤테이션 확인).
 - **주의:** `ReadableStream`의 `cancel(reason)`에서 업스트림 reader를 취소하려면 reader를 `start` 밖(생성자 스코프)에서 만들어 둘이 공유해야 한다. `start` 안에서 만들면 `cancel`이 접근할 수 없다.
+
+## [2026-07-11] 재색인 대상 식별을 청킹 버전까지 (OQ-010, 사람 승인)
+- **상황:** `staleDocuments()`가 임베딩 모델 불일치만 봤다. 청킹 전략을 바꿔도 `GET /api/index/stale`에 안 떴다. `chunking_version`은 정확히 기록됐지만(6dce324) 조회가 좁았다.
+- **결정(사람):** 모델 **또는** 청킹 버전이 다르면 대상. 각 문서가 왜 대상인지(모델·청킹·둘 다) `StaleDocument.reason`으로 내려준다. 청크 크기(chunkSizeTokens)는 버전에 안 넣는다(옵션에서 제외).
+- **구현:** JPA 파생 쿼리 `findByEmbeddingModelNotOrChunkingVersionNot` — 두 컬럼 모두 not-null이라 OR 비교가 명확하다. `DocumentRecord`에 `chunkingVersion` 추가, `StaleReason` enum, 서비스에서 현재값과 비교해 reason 계산.
+- **파생 쿼리는 실 DB로 검증한다.** OR 조건 파생 쿼리가 맞는지는 이름만 보고 믿지 않고 `PostgresDocumentRepositoryTest`에 청킹-stale 케이스를 넣어 확인했다(뮤테이션: 모델-only 쿼리로 되돌리면 red).
+- **거버넌스:** REQ-IDX 9번 **본문 수정**은 사람 승인 사안이라 `LLMHUB_DOC_EDIT_APPROVED=1`로 커밋한다. 사용자가 이 변경을 승인했다. 체크리스트 항목도 함께 추가.

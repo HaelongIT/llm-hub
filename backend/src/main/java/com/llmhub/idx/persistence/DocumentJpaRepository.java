@@ -10,6 +10,10 @@ public interface DocumentJpaRepository extends JpaRepository<DocumentEntity, UUI
 
 	Optional<DocumentEntity> findByDocKey(String docKey);
 
-	/** 재색인 대상. 메타의 모델명으로 식별한다 (E9). */
-	List<DocumentEntity> findByEmbeddingModelNot(String embeddingModel);
+	/**
+	 * 재색인 대상. 임베딩 모델이 다르거나 청킹 버전이 다른 문서 (E9, E11). 두 컬럼 모두 not-null이라 OR 비교가
+	 * 명확하다.
+	 */
+	List<DocumentEntity> findByEmbeddingModelNotOrChunkingVersionNot(
+			String embeddingModel, String chunkingVersion);
 }

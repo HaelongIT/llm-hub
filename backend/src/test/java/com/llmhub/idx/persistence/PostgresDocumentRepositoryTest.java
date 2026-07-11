@@ -91,10 +91,27 @@ class PostgresDocumentRepositoryTest {
 		repository.upsert("옛-모델-문서", "a.pdf", "key-a", List.of("public"), "모델-2024", "token-v0", null);
 		repository.upsert("현-모델-문서", "b.pdf", "key-b", List.of("public"), "모델-2026", "token-v0", null);
 
-		List<String> 대상 = repository.findStale("모델-2026").stream().map(DocumentRecord::docKey).toList();
+		List<String> 대상 =
+				repository.findStale("모델-2026", "token-v0").stream().map(DocumentRecord::docKey).toList();
 
 		assertThat(대상).as("메타의 모델명으로 재색인 대상을 식별한다 (E9)").contains("옛-모델-문서");
-		assertThat(대상).as("현재 모델로 색인된 문서는 재색인할 필요가 없다").doesNotContain("현-모델-문서");
+		assertThat(대상).as("현재 모델·청킹으로 색인된 문서는 재색인할 필요가 없다").doesNotContain("현-모델-문서");
+	}
+
+	@Test
+	@DisplayName("청킹 버전이 다르면 모델이 같아도 재색인 대상이다 (E11, OQ-010)")
+	void 청킹_버전으로도_대상을_찾는다() {
+		repository.upsert("청킹-옛버전", "c.pdf", "key-c", List.of("public"), "모델-공통", "청킹-2024", null);
+		repository.upsert("청킹-현버전", "d.pdf", "key-d", List.of("public"), "모델-공통", "청킹-2026", null);
+
+		// 모델은 둘 다 '모델-공통'이라 모델 기준으론 아무도 안 걸린다. 청킹 버전으로 걸러야 한다.
+		List<String> 대상 =
+				repository.findStale("모델-공통", "청킹-2026").stream().map(DocumentRecord::docKey).toList();
+
+		assertThat(대상)
+				.as("청킹 버전만 달라도 재색인 대상이다 — findStale의 OR 조건을 실 DB로 검증 (OQ-010)")
+				.contains("청킹-옛버전")
+				.doesNotContain("청킹-현버전");
 	}
 
 	// docs/03: uploaded_by FK→app_user. 누가 이 문서를 올렸는지가 유일하게 남는 자리다.

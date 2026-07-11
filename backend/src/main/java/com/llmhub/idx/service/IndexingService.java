@@ -102,11 +102,29 @@ public final class IndexingService {
 		return run(docKey, document.filename(), document.accessTags(), content, document::storageKey, null);
 	}
 
-	/** 현재 설정과 다른 모델로 색인된 문서들. 재색인 대상이다 (E9). */
+	/** 현재 설정과 다른 임베딩 모델 <b>또는</b> 청킹 버전으로 색인된 문서들. 재색인 대상이다 (E9, E11). */
 	public List<StaleDocument> staleDocuments() {
-		return documentRepository.findStale(embeddingClient.spec().model()).stream()
-				.map(d -> new StaleDocument(d.docKey(), d.filename(), d.embeddingModel()))
+		String currentModel = embeddingClient.spec().model();
+		String currentVersion = chunkingStrategy.version();
+		return documentRepository.findStale(currentModel, currentVersion).stream()
+				.map(
+						d ->
+								new StaleDocument(
+										d.docKey(),
+										d.filename(),
+										d.embeddingModel(),
+										d.chunkingVersion(),
+										reasonFor(d, currentModel, currentVersion)))
 				.toList();
+	}
+
+	private static StaleReason reasonFor(DocumentRecord d, String currentModel, String currentVersion) {
+		boolean modelStale = !d.embeddingModel().equals(currentModel);
+		boolean chunkingStale = !d.chunkingVersion().equals(currentVersion);
+		if (modelStale && chunkingStale) {
+			return StaleReason.MODEL_AND_CHUNKING;
+		}
+		return modelStale ? StaleReason.MODEL : StaleReason.CHUNKING;
 	}
 
 	/**

@@ -29,6 +29,6 @@ public interface DocumentRepository {
 	/** 재색인은 이 레코드의 원본 경로에서 다시 읽는다 (S16). */
 	Optional<DocumentRecord> findByDocKey(String docKey);
 
-	/** 현재 설정과 <b>다른</b> 임베딩 모델로 색인된 문서들. 재색인 대상이다 (E9). */
-	List<DocumentRecord> findStale(String currentEmbeddingModel);
+	/** 현재 설정과 <b>다른</b> 임베딩 모델 또는 청킹 버전으로 색인된 문서들. 재색인 대상이다 (E9, E11). */
+	List<DocumentRecord> findStale(String currentEmbeddingModel, String currentChunkingVersion);
 }
