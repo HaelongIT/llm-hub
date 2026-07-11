@@ -375,3 +375,9 @@
 - **취소는 in-flight onNext와 겹칠 수 있다.** doFinally가 취소 시 `answer`(StringBuilder)를 읽는데, 그 순간 다른 스레드가 append 중일 수 있다(찢긴 읽기 → 드물게 예외). append와 snapshot 읽기를 `synchronized(answer)`로 묶어 막았다. onComplete·onError는 신호가 직렬화돼 경쟁이 없지만 CANCEL만 예외라 필요하다.
 - **테스트로 취소를 만드는 법:** `service.stream(...).take(2).blockLast()` — Sources + 첫 토큰까지 받고 take가 upstream을 취소한다. 비동기 감사 기록은 latch로 기다린다. 뮤테이션(doFinally→doOnComplete)으로 취소·오류 감사 테스트가 red 됨을 확인.
 - **동작 변경:** 기존 "오류 시 아무것도 저장 안 함" 테스트를 "이력은 없고 감사는 ERROR"로 바꿨다. 약화가 아니라 R-5 결정(취소·오류도 감사)의 구현이다 — 근거가 전달된 실패도 감사 대상이다.
+
+## [2026-07-11] 무검증 방어를 테스트가 강제하게 만들기 (리뷰 "테스트가 강제 못 하는 것")
+- **ManagementPortMatcher(SEC-1):** 관리 포트를 앱 포트와 같게 오설정하면 헬스가 인증 없이 열린다. 그 방어 분기(`management.equals(application)`)가 무검증이라 지워도 통과했다. 테스트로 강제(뮤테이션 확인). **함정: `MockServerHttpRequest` 빌더에 localAddress 설정이 없다** — `ServerHttpRequestDecorator`로 `getLocalAddress()`를 덮어야 한다.
+- **TraceIdErrorAttributes(SEC-3):** 에러 본문이 예외 문구를 노출하도록 바꿔도 무검출이었다. traceId는 싣고 내부 문구(ES 인덱스명·주소)는 안 싣는지 검증. **함정: `MockServerWebExchange`는 `LOG_ID_ATTRIBUTE`를 기본값으로 채운다** — "traceId 없음" 케이스는 mock으로 못 만든다(운영에선 TraceIdWebFilter가 항상 심으니 무의미).
+- **V0EndToEnd 근거→LLM:** 대역 모델이 **프롬프트를 무시하고 고정 문자열만 흘려**, 근거 주입을 제거해도 통과했다(`contains(근거)`가 매칭되는 곳은 LLM 출력이 아니라 `event:sources` 프레임). 또 주석은 "근거를 되뇐다"고 앞서 있었다. **결정적 단언:** 대역이 시스템 프롬프트를 되뇌게 하고, `"[근거]"`(시스템 프롬프트에만 있고 sources JSON엔 없음) 포함 + 빈 대체 문구 부재를 확인. 근거 주입 제거 시 red 됨을 뮤테이션으로 확인.
+- **교훈:** "테스트가 무엇을 강제하지 않는지"도 발견이다. 통과하는 스위트가 방어의 부재를 숨길 수 있다 — 뮤테이션(프로덕션 코드를 일부러 뒤집기)만이 그것을 드러낸다.

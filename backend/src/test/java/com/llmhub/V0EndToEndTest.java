@@ -86,6 +86,13 @@ class V0EndToEndTest {
 
 		assertThat(응답).as("이벤트 타입 SSE").contains("event:sources").contains("event:text").contains("event:done");
 		assertThat(응답).as("근거는 서버가 실제로 검색한 조각이다 (S6)").contains("연차휴가는 근로기준법에 따라 부여한다.");
+		// LLM 대역이 시스템 프롬프트를 되뇌므로, 아래 두 단언은 근거가 검색 프레임이 아니라 LLM 프롬프트까지
+		// 실렸음을 강제한다. "[근거]"는 시스템 프롬프트에만 있고(sources JSON엔 없다), 빈 대체 문구가 보이면
+		// 근거 주입이 끊긴 것이다.
+		assertThat(응답)
+				.as("근거가 LLM 프롬프트까지 실렸다 (S6) — 대역이 시스템 프롬프트를 되뇐다")
+				.contains("[근거]")
+				.doesNotContain("(검색된 근거가 없습니다)");
 		assertThat(응답).as("권한 없는 조각은 검색 단계에서 배제된다 (SEC-2)").doesNotContain("임원 특별휴가");
 		assertThat(응답).doesNotContain("기밀.txt");
 	}
@@ -213,7 +220,13 @@ class V0EndToEndTest {
 			return new float[] {0.0f, 1.0f, 0.0f};
 		}
 
-		/** LLM 대역. 프롬프트에 실린 근거를 그대로 되뇐다 — 근거가 실제로 주입됐는지 응답에서 확인하기 위함이다. */
+		/**
+		 * LLM 대역. <b>프롬프트의 시스템 메시지(근거가 주입되는 곳)를 그대로 되뇐다.</b>
+		 *
+		 * <p>고정 문자열만 흘리면 근거 주입을 제거해도 E2E가 통과한다 — {@code contains(근거)}가 매칭되는 곳은 LLM
+		 * 출력이 아니라 검색이 만든 {@code event:sources} 프레임이기 때문이다. 시스템 프롬프트를 되뇌어야 근거가 실제로
+		 * LLM까지 실렸는지를 응답에서 확인할 수 있다.
+		 */
 		@Bean
 		@Primary
 		ChatModel 대역_모델() {
@@ -225,7 +238,13 @@ class V0EndToEndTest {
 
 				@Override
 				public Flux<ChatResponse> stream(Prompt prompt) {
-					return Flux.just("답변: ", "근거를 참고했습니다.")
+					String 시스템프롬프트 =
+							prompt.getInstructions().stream()
+									.filter(org.springframework.ai.chat.messages.SystemMessage.class::isInstance)
+									.map(org.springframework.ai.chat.messages.Message::getText)
+									.findFirst()
+									.orElse("(시스템 메시지 없음)");
+					return Flux.just("답변(LLM이 본 프롬프트): ", 시스템프롬프트)
 							.map(d -> new ChatResponse(List.of(new Generation(new AssistantMessage(d)))));
 				}
 			};
