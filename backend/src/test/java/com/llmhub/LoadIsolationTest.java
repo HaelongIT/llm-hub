@@ -62,7 +62,11 @@ import reactor.core.publisher.Mono;
 @Import(LoadIsolationTest.대역.class)
 class LoadIsolationTest {
 
-	/** 동시 요청 수. boundedElastic 기본 상한(코어 × 10)보다 작아야 큐잉이 결과를 흐리지 않는다. */
+	/**
+	 * 동시 요청 수. boundedElastic 상한보다 작아야 큐잉이 결과를 흐리지 않는다. 기본 상한은 코어 × 10이라
+	 * 4코어 미만 CI에서는 32보다 작아져 부분 직렬화로 플래키했다. build.gradle이
+	 * {@code reactor.schedulers.defaultBoundedElasticSize=64}로 상한을 코어 수와 무관하게 고정한다.
+	 */
 	private static final int CONCURRENCY = 32;
 
 	/** 검색 한 번의 블로킹 시간. 직렬화되면 즉시 드러날 만큼 크게 잡는다. */

@@ -96,4 +96,7 @@ tasks.withType<Test> {
 	// 그대로다). 순서 의존도 함께 줄인다 — 각 fork는 무장되지 않은 새 JVM에서 시작한다 (리뷰 #5).
 	setForkEvery(15)
 	maxHeapSize = "2g"
+	// boundedElastic 상한을 코어 수와 무관하게 고정한다. 기본은 코어 × 10이라, 4코어 미만 CI에서는
+	// LoadIsolationTest의 동시성(32)보다 작아져 부분 직렬화로 플래키했다 (리뷰 테스트 #6).
+	systemProperty("reactor.schedulers.defaultBoundedElasticSize", "64")
 }
