@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
@@ -44,6 +45,24 @@ public final class IndexingService {
 	private final DocumentRepository documentRepository;
 	private final Clock clock;
 	private final ChunkAssembler assembler = new ChunkAssembler();
+
+	// 같은 doc_key의 색인은 직렬화한다. 결정적 documentId를 공유하는 동시 색인 두 건이 deleteStaleChunks로
+	// 서로의 조각을 지워 검색불가 유령 문서를 만드는 것을 막는다 (리뷰 F2, S17). v0는 회사별 단일 인스턴스
+	// 설치이므로 인프로세스 줄무늬 락으로 충분하다. 다중 인스턴스로 가면 PG advisory lock으로 올려야 한다.
+	private static final int LOCK_STRIPES = 64;
+	private final ReentrantLock[] docKeyLocks = newStripes();
+
+	private static ReentrantLock[] newStripes() {
+		ReentrantLock[] locks = new ReentrantLock[LOCK_STRIPES];
+		for (int i = 0; i < LOCK_STRIPES; i++) {
+			locks[i] = new ReentrantLock();
+		}
+		return locks;
+	}
+
+	private ReentrantLock lockFor(String docKey) {
+		return docKeyLocks[Math.floorMod(docKey.hashCode(), LOCK_STRIPES)];
+	}
 
 	public IndexingService(
 			UploadValidator validator,
@@ -173,46 +192,54 @@ public final class IndexingService {
 						indexingRunId,
 						Instant.now(clock));
 
-		chunkRepository.createIndexIfMissing(spec);
-		chunkRepository.indexAll(
-				IntStream.range(0, indexed.size())
-						.mapToObj(i -> new EmbeddedChunk(indexed.get(i), vectors.get(i)))
-						.toList());
+		// ES 색인 → 구버전 삭제 → PG 커밋은 doc_key 단위로 직렬화한다. 임베딩(비용 큼)은 락 밖에서 끝냈다.
+		// 같은 doc_key 동시 색인이 이 구간에서 겹치면 deleteStaleChunks가 서로의 조각을 지운다 (F2, S17).
+		ReentrantLock lock = lockFor(docKey);
+		lock.lock();
+		try {
+			chunkRepository.createIndexIfMissing(spec);
+			chunkRepository.indexAll(
+					IntStream.range(0, indexed.size())
+							.mapToObj(i -> new EmbeddedChunk(indexed.get(i), vectors.get(i)))
+							.toList());
 
-		// 순서가 전부다. 신버전 색인이 끝난 뒤에만 구버전을 지운다.
-		// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
-		chunkRepository.deleteStaleChunks(documentId, indexingRunId);
+			// 순서가 전부다. 신버전 색인이 끝난 뒤에만 구버전을 지운다.
+			// 역순이면 색인 도중 장애가 났을 때 문서가 통째로 사라진다 (S17 × S8-3).
+			chunkRepository.deleteStaleChunks(documentId, indexingRunId);
 
-		// 재업로드면 구 원본의 저장 키를 upsert가 덮어쓰기 전에 확보한다 (L-1).
-		String previousStorageKey =
-				documentRepository.findByDocKey(docKey).map(DocumentRecord::storageKey).orElse(null);
+			// 재업로드면 구 원본의 저장 키를 upsert가 덮어쓰기 전에 확보한다 (L-1).
+			String previousStorageKey =
+					documentRepository.findByDocKey(docKey).map(DocumentRecord::storageKey).orElse(null);
 
-		// ES가 확정된 뒤에만 PG 메타데이터를 커밋한다. ES가 실패하면 여기 도달하지 못하므로,
-		// 검색 불가인데 stale 목록에도 없는 유령 문서가 생기지 않는다 (R-3). 원본 보관(storageKey.get())도
-		// 이 시점에 일어나 색인 실패 시 고아 파일이 남지 않는다.
-		DocumentRecord document =
-				documentRepository.upsert(
-						docKey,
-						filename,
-						storageKey.get(),
-						accessTags,
-						spec.model(),
-						// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
-						chunkingStrategy.version(),
-						uploadedBy);
+			// ES가 확정된 뒤에만 PG 메타데이터를 커밋한다. ES가 실패하면 여기 도달하지 못하므로,
+			// 검색 불가인데 stale 목록에도 없는 유령 문서가 생기지 않는다 (R-3). 원본 보관(storageKey.get())도
+			// 이 시점에 일어나 색인 실패 시 고아 파일이 남지 않는다.
+			DocumentRecord document =
+					documentRepository.upsert(
+							docKey,
+							filename,
+							storageKey.get(),
+							accessTags,
+							spec.model(),
+							// 임베딩 모델과 같다. 매 색인마다 지금 쓰는 전략의 버전을 기록한다 (E11).
+							chunkingStrategy.version(),
+							uploadedBy);
 
-		// 재업로드로 새 원본을 저장했다면 구 원본을 정리한다. 재색인은 같은 키를 재사용하므로 지우지 않는다 (L-1).
-		if (previousStorageKey != null && !previousStorageKey.equals(document.storageKey())) {
-			fileStorage.delete(previousStorageKey);
+			// 재업로드로 새 원본을 저장했다면 구 원본을 정리한다. 재색인은 같은 키를 재사용하므로 지우지 않는다 (L-1).
+			if (previousStorageKey != null && !previousStorageKey.equals(document.storageKey())) {
+				fileStorage.delete(previousStorageKey);
+			}
+
+			log.info(
+					"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",
+					docKey,
+					document.id(),
+					indexingRunId,
+					indexed.size());
+			return new IndexResult(document.id(), indexingRunId, indexed.size());
+		} finally {
+			lock.unlock();
 		}
-
-		log.info(
-				"색인 완료 docKey={} documentId={} indexingRunId={} chunks={}",
-				docKey,
-				document.id(),
-				indexingRunId,
-				indexed.size());
-		return new IndexResult(document.id(), indexingRunId, indexed.size());
 	}
 
 	/**

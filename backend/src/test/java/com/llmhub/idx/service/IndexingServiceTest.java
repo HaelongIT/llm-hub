@@ -216,6 +216,41 @@ class IndexingServiceTest {
 	}
 
 	@Test
+	@DisplayName("같은 doc_key 동시 색인은 직렬화되어 유령 문서를 만들지 않는다 (리뷰 F2)")
+	void 동시_색인은_직렬화된다(@TempDir Path root) throws Exception {
+		// 락이 없으면 A.indexAll → B.indexAll → A.deleteStale(=B삭제) → B.deleteStale(=A삭제)로 조각이
+		// 0개가 되고, PG는 정상 행이라 staleDocuments()에도 안 잡히는 검색불가 유령 문서가 된다 (S17).
+		// indexAll에 지연을 둬 겹칠 창을 넓힌다. 임계구역이 docKey 단위로 직렬화되면 겹치지 않고 조각이 남는다.
+		겹침_감지_저장소 chunks2 = new 겹침_감지_저장소();
+		FakeDocumentRepository docs2 = new FakeDocumentRepository();
+		IndexingService svc =
+				new IndexingService(
+						new UploadValidator(Map.of("txt", Set.of("text/plain")), 1_000_000),
+						new LocalFileStorage(root),
+						List.of(new TikaDocumentParser()),
+						new TokenChunkingStrategy(20),
+						new FakeEmbeddingClient(설정된_임베딩),
+						chunks2,
+						docs2,
+						Clock.fixed(고정시각, ZoneOffset.UTC));
+
+		Runnable 색인 = () -> svc.index(요청("규정", "규정.txt", List.of("public")));
+		Thread a = new Thread(색인);
+		Thread b = new Thread(색인);
+		a.start();
+		b.start();
+		a.join();
+		b.join();
+
+		assertThat(chunks2.겹침_발생)
+				.as("같은 doc_key의 색인 임계구역이 동시에 실행되면 서로의 조각을 지운다 (F2)")
+				.isFalse();
+		assertThat(chunks2.indexed)
+				.as("동시 색인 뒤에도 문서 조각이 남아야 한다 — 0개면 검색불가 유령 문서다")
+				.isNotEmpty();
+	}
+
+	@Test
 	@DisplayName("재색인 중 임베딩이 실패하면 구버전 조각이 그대로 검색된다")
 	void 재색인_실패시_구버전이_살아남는다(@TempDir Path root) {
 		준비한다(root, new FakeEmbeddingClient(설정된_임베딩));
@@ -575,6 +610,48 @@ class IndexingServiceTest {
 					e ->
 							e.chunk().documentId().equals(documentId)
 									&& !e.chunk().indexingRunId().equals(currentIndexingRunId));
+		}
+
+		@Override
+		public List<IndexedChunk> findByDocumentId(String documentId) {
+			return indexed.stream().map(EmbeddedChunk::chunk).filter(c -> c.documentId().equals(documentId)).toList();
+		}
+	}
+
+	/** indexAll에 지연을 두고 임계구역 겹침을 감지한다. F2 동시성 재현용. 스레드 안전. */
+	private static final class 겹침_감지_저장소 implements com.llmhub.idx.index.ChunkRepository {
+		private final java.util.List<EmbeddedChunk> indexed = new java.util.concurrent.CopyOnWriteArrayList<>();
+		private final java.util.concurrent.atomic.AtomicInteger 활성 = new java.util.concurrent.atomic.AtomicInteger();
+		private volatile boolean 겹침_발생 = false;
+
+		@Override
+		public java.util.OptionalInt indexedDimensions() {
+			return java.util.OptionalInt.empty();
+		}
+
+		@Override
+		public void createIndexIfMissing(EmbeddingSpec spec) {}
+
+		@Override
+		public void indexAll(List<EmbeddedChunk> batch) {
+			if (활성.incrementAndGet() > 1) {
+				겹침_발생 = true;
+			}
+			try {
+				Thread.sleep(150); // 겹칠 창을 넓힌다.
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+			indexed.addAll(batch);
+		}
+
+		@Override
+		public void deleteStaleChunks(String documentId, String currentIndexingRunId) {
+			indexed.removeIf(
+					e ->
+							e.chunk().documentId().equals(documentId)
+									&& !e.chunk().indexingRunId().equals(currentIndexingRunId));
+			활성.decrementAndGet();
 		}
 
 		@Override
