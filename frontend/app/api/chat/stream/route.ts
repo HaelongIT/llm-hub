@@ -1,3 +1,4 @@
+import { lastUserText } from '@/lib/chat-request';
 import { bearerToken } from '@/lib/core';
 import { hasUsableToken } from '@/lib/token';
 import { relayFailure } from '@/lib/upstream';
@@ -22,7 +23,11 @@ export async function POST(request: Request) {
 	}
 	const { accessToken } = token;
 
-	const body = await request.json();
+	const body = await request.json().catch(() => null);
+	// 정상 useChat 경로는 항상 messages 배열을 보낸다. 아니면 스프레드에서 500이 되므로 400으로 거부한다 (F7).
+	if (!body || !Array.isArray(body.messages)) {
+		return new Response('Bad Request', { status: 400 });
+	}
 
 	const upstream = await fetch(`${CORE_URL}/api/chat/stream`, {
 		method: 'POST',
@@ -46,16 +51,5 @@ export async function POST(request: Request) {
 	}
 
 	return new Response(translateCoreStream(upstream.body), { headers: UI_MESSAGE_STREAM_HEADERS });
-}
-
-/** 검색 쿼리는 마지막 사용자 질문 그대로다 (S2). */
-function lastUserText(messages: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>): string {
-	const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-	return (
-		lastUser?.parts
-			?.filter((p) => p.type === 'text')
-			.map((p) => p.text ?? '')
-			.join('') ?? ''
-	);
 }
 
