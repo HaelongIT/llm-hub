@@ -55,8 +55,13 @@ public class ChatController {
 	public Flux<ServerSentEvent<Object>> stream(
 			@RequestBody ChatStreamRequest request, @AuthenticationPrincipal Jwt jwt) {
 
+		// 질문이 비어 있으면 두 경로(신규/기존 세션)를 400으로 통일해 거부한다. 없으면 새 세션 경로의
+		// titleOf(null)에서 NPE가 나 SSE 없이 raw 500이 된다 (리뷰 F5, S8-3).
+		if (request.question() == null || request.question().isBlank()) {
+			throw new QuestionRequiredException();
+		}
 		// 이력은 조립기가 예산으로 자르지만 지금 질문은 자를 수 없다. 거부한다 (PERF-5, SEC-4).
-		if (request.question() != null && request.question().length() > maxQuestionChars) {
+		if (request.question().length() > maxQuestionChars) {
 			throw new QuestionTooLongException(request.question().length(), maxQuestionChars);
 		}
 		String requesterId = jwt.getSubject();
@@ -96,8 +101,14 @@ public class ChatController {
 		return new Session(request.sessionId(), historyRepository.history(request.sessionId()));
 	}
 
-	private static String titleOf(String question) {
-		return question.length() <= 60 ? question : question.substring(0, 60);
+	static String titleOf(String question) {
+		if (question.length() <= 60) {
+			return question;
+		}
+		// 60번째 코드유닛이 서로게이트 쌍의 low half면 한 칸 앞에서 자른다. 쌍을 쪼개면 고립 서로게이트가
+		// 제목에 남아 사이드바에 U+FFFD로 뜬다. 청킹처럼 글자 경계를 지킨다 (리뷰 F6, S2).
+		int end = Character.isHighSurrogate(question.charAt(59)) ? 59 : 60;
+		return question.substring(0, end);
 	}
 
 	private static ServerSentEvent<Object> toServerSentEvent(ChatEvent event) {

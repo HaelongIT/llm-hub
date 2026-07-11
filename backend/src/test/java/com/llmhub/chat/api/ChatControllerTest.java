@@ -216,6 +216,24 @@ class ChatControllerTest {
 		assertThat(검색.호출된_태그).as("거부된 요청은 임베딩·검색 비용을 쓰지 않는다").isEmpty();
 	}
 
+	@Test
+	@DisplayName("질문이 없으면 500이 아니라 400으로 거부된다 (리뷰 F5)")
+	void 질문이_없으면_400이다() {
+		// sessionId도 question도 없는 {} 본문은 새 세션 경로로 간다. 예전엔 titleOf(null)에서 NPE가 나
+		// SSE error/done 없이 raw 500이었다. 기존-세션 경로(클린 error)와 불일치했다 (S8-3).
+		client
+				.post()
+				.uri("/api/chat/stream")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + USER_토큰)
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(Map.of())
+				.exchange()
+				.expectStatus()
+				.isBadRequest();
+
+		assertThat(검색.호출된_태그).as("거부된 요청은 검색에 닿지 않는다").isEmpty();
+	}
+
 	private UUID ADMIN의_세션을_만든다(String 이력) {
 		return 세션을_만든다("subject-ADMIN", 이력);
 	}
