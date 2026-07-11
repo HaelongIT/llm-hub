@@ -31,6 +31,7 @@ public class PostgresAuditLogRepository implements AuditLogRepository {
 						record.question(),
 						record.answer(),
 						record.sourcesJson(),
+						record.outcome().name(),
 						Instant.now(clock)));
 	}
 }

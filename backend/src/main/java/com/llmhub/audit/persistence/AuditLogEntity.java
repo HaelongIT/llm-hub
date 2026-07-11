@@ -34,6 +34,10 @@ class AuditLogEntity {
 	@Column(name = "sources_json")
 	private String sourcesJson;
 
+	/** 완료·취소·오류. 취소도 남겨야 "채팅 1회 → 감사 1건"이 지켜진다 (R-5). */
+	@Column(name = "outcome", nullable = false)
+	private String outcome;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -46,6 +50,7 @@ class AuditLogEntity {
 			String question,
 			String answer,
 			String sourcesJson,
+			String outcome,
 			Instant createdAt) {
 		this.id = id;
 		this.traceId = traceId;
@@ -53,6 +58,7 @@ class AuditLogEntity {
 		this.question = question;
 		this.answer = answer;
 		this.sourcesJson = sourcesJson;
+		this.outcome = outcome;
 		this.createdAt = createdAt;
 	}
 }

@@ -367,3 +367,11 @@
 - **getToken 함정 — salt는 쿠키명과 같아야 복호화된다.** Auth.js는 세션 JWT를 `salt = cookieName`으로 암호화한다. 쿠키명은 https에서 `__Secure-authjs.session-token`, http에서 `authjs.session-token`이다. `secureCookie`를 틀리면 쿠키를 못 찾거나 salt가 어긋나 복호화 실패 → **모든 BFF 호출 401**. 실제 요청 쿠키에 `__Secure-` 접두사가 있는지로 감지해 dev·운영 모두 맞춘다. 큰 토큰이 청크된 쿠키(`.0`,`.1`)는 getToken 내부 SessionStore가 합친다.
 - **plumbing:** `next/headers`의 `headers()`(Next 16은 async)로 요청 헤더를 얻어 `getToken({req:{headers}})`에 넘긴다. proxyToCore 3개 호출부에 request를 스레딩하지 않아도 된다(요청 스코프에서 headers()가 동작).
 - **검증 경계:** `bearerToken`은 `next/headers`·next-auth를 끌어 `node --test`로 못 켠다. 타입체크·`next build`로 컴파일·타입은 확정했으나, **실토큰 쿠키를 실제로 복호화해 BFF가 여전히 인가하는지**는 실스택(Next+Keycloak 로그인)이 있어야 확인된다 — 프론트 마감 때 브라우저 검증과 함께 본다. fail-closed(틀리면 401)라 보안 우회는 없다.
+
+## [2026-07-11] 감사 공백 — 취소는 doOnComplete를 실행하지 않는다 (R-5)
+- **상황:** `ChatService`의 감사 기록이 `doOnComplete`(persist)에서만 일어났다. **Reactor 취소는 doOnComplete를 실행하지 않는다.** 근거(sources)는 첫 토큰보다 먼저 전달되므로(S6), 사용자가 근거를 받고 탭을 닫으면(취소) 근거는 이미 브라우저에 갔는데 감사는 0건이었다 — REQ-AUDIT "채팅 1회 → 감사 1건" 위반. 실측(리뷰): 중도 종료 시 감사 카운트가 안 늘었다.
+- **결정(사람):** doFinally로 감사를 옮겨 취소·오류에도 남긴다. 완료/취소/오류를 outcome으로 표시(스키마 변경 승인 → V3 마이그레이션, 기본값 COMPLETE).
+- **doFinally는 complete·cancel·error 모든 종료에서 정확히 한 번 돈다.** 이력은 doOnComplete(성공만) 그대로 두고, 감사만 doFinally로 분리했다. 그래서 성공 시 감사는 doFinally에서 한 번(중복 없음), 취소·오류 시에도 한 번. `SignalType`으로 outcome을 정한다(ON_COMPLETE→COMPLETE, CANCEL→CANCELLED, 그 외→ERROR).
+- **취소는 in-flight onNext와 겹칠 수 있다.** doFinally가 취소 시 `answer`(StringBuilder)를 읽는데, 그 순간 다른 스레드가 append 중일 수 있다(찢긴 읽기 → 드물게 예외). append와 snapshot 읽기를 `synchronized(answer)`로 묶어 막았다. onComplete·onError는 신호가 직렬화돼 경쟁이 없지만 CANCEL만 예외라 필요하다.
+- **테스트로 취소를 만드는 법:** `service.stream(...).take(2).blockLast()` — Sources + 첫 토큰까지 받고 take가 upstream을 취소한다. 비동기 감사 기록은 latch로 기다린다. 뮤테이션(doFinally→doOnComplete)으로 취소·오류 감사 테스트가 red 됨을 확인.
+- **동작 변경:** 기존 "오류 시 아무것도 저장 안 함" 테스트를 "이력은 없고 감사는 ERROR"로 바꿨다. 약화가 아니라 R-5 결정(취소·오류도 감사)의 구현이다 — 근거가 전달된 실패도 감사 대상이다.

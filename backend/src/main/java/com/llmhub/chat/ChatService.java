@@ -3,6 +3,7 @@ package com.llmhub.chat;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.llmhub.audit.AuditLogRepository;
+import com.llmhub.audit.AuditOutcome;
 import com.llmhub.audit.AuditRecord;
 import com.llmhub.audit.AuditScope;
 import com.llmhub.common.Blocking;
@@ -21,6 +22,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 /**
  * 질문을 받아 근거 기반 답변을 이벤트 SSE로 스트리밍한다.
@@ -105,12 +107,24 @@ public final class ChatService {
 											Mono.<ChatEvent>just(new ChatEvent.Sources(sources)),
 											answerStream(question, history, sources, answer),
 											Mono.<ChatEvent>just(new ChatEvent.Done(traceId)))
-									// 스트림이 성공적으로 끝난 뒤에만 저장한다. 실패한 대화는 이력으로 남기지 않는다.
+									// 이력은 성공적으로 끝난 대화만 남긴다. 실패·취소한 대화는 이력에 남지 않는다.
 									.doOnComplete(
 											() -> {
 												log.info("응답 완료 traceId={} answerChars={}", traceId, answer.length());
-												persist(sessionId, requesterId, question, answer.toString(), sources, traceId);
-											});
+												persistHistory(sessionId, question, snapshot(answer), sources, traceId);
+											})
+									// 감사는 취소·오류를 포함해 항상 남긴다. 취소는 doOnComplete를 실행시키지 않으므로,
+									// 근거가 이미 전달된 대화(S6)가 감사에서 사라지는 것을 막는다 (R-5). doFinally는
+									// complete·cancel·error 모든 종료에서 정확히 한 번 돈다.
+									.doFinally(
+											signal ->
+													recordAudit(
+															requesterId,
+															question,
+															snapshot(answer),
+															sources,
+															traceId,
+															outcomeOf(signal)));
 						})
 				.onErrorResume(
 						error -> {
@@ -131,18 +145,35 @@ public final class ChatService {
 				.content()
 				// 토큰 사이 유휴 상한. 넘으면 TimeoutException이 나고 onErrorResume이 error 이벤트로 닫는다.
 				.timeout(streamIdleTimeout)
-				.doOnNext(answer::append)
+				// 취소는 in-flight onNext와 겹칠 수 있다. append와 snapshot 읽기를 같은 잠금으로 묶어
+				// 찢긴 읽기를 막는다 (R-5, doFinally가 취소 시 answer를 읽는다).
+				.doOnNext(delta -> appendAnswer(answer, delta))
 				.map(ChatEvent.Text::new);
 	}
 
-	/** 저장을 격리 스케줄러로 던지고 <b>구독만 한다</b>. 스트림은 여기서 기다리지 않는다 (S13). */
-	private void persist(
-			UUID sessionId,
-			String requesterId,
-			String question,
-			String answer,
-			List<Source> sources,
-			String traceId) {
+	private static void appendAnswer(StringBuilder answer, String delta) {
+		synchronized (answer) {
+			answer.append(delta);
+		}
+	}
+
+	private static String snapshot(StringBuilder answer) {
+		synchronized (answer) {
+			return answer.toString();
+		}
+	}
+
+	private static AuditOutcome outcomeOf(SignalType signal) {
+		return switch (signal) {
+			case ON_COMPLETE -> AuditOutcome.COMPLETE;
+			case CANCEL -> AuditOutcome.CANCELLED;
+			default -> AuditOutcome.ERROR;
+		};
+	}
+
+	/** 이력 저장을 격리 스케줄러로 던지고 <b>구독만 한다</b>. 스트림은 여기서 기다리지 않는다 (S13). */
+	private void persistHistory(
+			UUID sessionId, String question, String answer, List<Source> sources, String traceId) {
 
 		String sourcesJson = toJson(sources);
 
@@ -154,11 +185,23 @@ public final class ChatService {
 				.doOnError(e -> log.error("이력 저장 실패 traceId={} — 사용자 응답은 정상이다", traceId, e))
 				.onErrorComplete()
 				.subscribe();
+	}
+
+	/** 감사 기록을 격리 스케줄러로 던지고 구독만 한다. 취소·오류에도 남긴다 (R-5). */
+	private void recordAudit(
+			String requesterId,
+			String question,
+			String answer,
+			List<Source> sources,
+			String traceId,
+			AuditOutcome outcome) {
+
+		String sourcesJson = toJson(sources);
 
 		Blocking.run(
 						() ->
 								auditLogRepository.record(
-										auditRecordOf(traceId, requesterId, question, answer, sourcesJson)))
+										auditRecordOf(traceId, requesterId, question, answer, sourcesJson, outcome)))
 				// 감사 저장 실패는 눈에 띄어야 한다 (REL-2).
 				.doOnError(e -> log.warn("감사 저장 실패 traceId={} requester={} — 감사 공백이 생겼다", traceId, requesterId, e))
 				.onErrorComplete()
@@ -167,10 +210,15 @@ public final class ChatService {
 
 	/** 기록 범위는 설정으로 조절한다. 범위 변경이 스키마 변경을 요구하지 않는다 (E5). */
 	private AuditRecord auditRecordOf(
-			String traceId, String requesterId, String question, String answer, String sourcesJson) {
+			String traceId,
+			String requesterId,
+			String question,
+			String answer,
+			String sourcesJson,
+			AuditOutcome outcome) {
 		return auditScope == AuditScope.FULL
-				? new AuditRecord(traceId, requesterId, question, answer, sourcesJson)
-				: new AuditRecord(traceId, requesterId, null, null, sourcesJson);
+				? new AuditRecord(traceId, requesterId, question, answer, sourcesJson, outcome)
+				: new AuditRecord(traceId, requesterId, null, null, sourcesJson, outcome);
 	}
 
 	private Prompt promptOf(String question, List<Message> history, List<Source> sources) {

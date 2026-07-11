@@ -59,7 +59,7 @@ class AuditIndependenceTest {
 
 		String traceId = "trace-" + UUID.randomUUID();
 		auditLog.record(
-				new AuditRecord(traceId, userId.toString(), "연차휴가는?", "15일입니다.", "[{\"documentId\":\"doc-1\"}]"));
+				new AuditRecord(traceId, userId.toString(), "연차휴가는?", "15일입니다.", "[{\"documentId\":\"doc-1\"}]", com.llmhub.audit.AuditOutcome.COMPLETE));
 
 		assertThat(history.history(sessionId)).hasSize(2);
 
@@ -76,7 +76,7 @@ class AuditIndependenceTest {
 	void 사용자_삭제가_감사에_영향을_주지_않는다() {
 		UUID userId = users.ensureExists("keycloak-subject-" + UUID.randomUUID());
 		String traceId = "trace-" + UUID.randomUUID();
-		auditLog.record(new AuditRecord(traceId, userId.toString(), "질문", "답변", null));
+		auditLog.record(new AuditRecord(traceId, userId.toString(), "질문", "답변", null, com.llmhub.audit.AuditOutcome.COMPLETE));
 
 		new JdbcTemplate(dataSource).update("delete from app_user where id = ?", userId);
 

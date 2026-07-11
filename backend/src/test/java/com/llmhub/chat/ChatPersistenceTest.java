@@ -3,6 +3,7 @@ package com.llmhub.chat;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.llmhub.audit.AuditLogRepository;
+import com.llmhub.audit.AuditOutcome;
 import com.llmhub.audit.AuditRecord;
 import com.llmhub.audit.AuditScope;
 import com.llmhub.common.embedding.EmbeddingClient;
@@ -86,7 +87,33 @@ class ChatPersistenceTest {
 			assertThat(r.question()).isEqualTo("연차휴가는?");
 			assertThat(r.answer()).isEqualTo("연차휴가는 15일입니다.");
 			assertThat(r.sourcesJson()).contains("doc-1");
+			assertThat(r.outcome()).as("끝까지 스트리밍된 대화다").isEqualTo(AuditOutcome.COMPLETE);
 		});
+	}
+
+	@Test
+	@DisplayName("스트림이 중간에 취소돼도 감사는 CANCELLED로 남고 이력은 남지 않는다 (R-5)")
+	void 취소돼도_감사는_남는다() throws InterruptedException {
+		// 근거는 첫 토큰보다 먼저 전달된다 (S6). 사용자가 그 뒤 탭을 닫으면(취소) 근거는 이미 갔다.
+		// take(2)로 Sources + 첫 토큰까지 받고 취소한다.
+		서비스(AuditScope.FULL)
+				.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1")
+				.take(2)
+				.blockLast();
+
+		감사.기록_완료.await(5, TimeUnit.SECONDS);
+		assertThat(감사.기록된)
+				.as("취소돼도 채팅 1회당 감사 1건이다 (REQ-AUDIT)")
+				.singleElement()
+				.satisfies(r -> {
+					assertThat(r.outcome()).isEqualTo(AuditOutcome.CANCELLED);
+					assertThat(r.traceId()).isEqualTo("trace-1");
+					assertThat(r.requesterId()).isEqualTo(요청자);
+					assertThat(r.sourcesJson()).as("무엇을 봤는지가 감사의 핵심이다").contains("doc-1");
+				});
+
+		Thread.sleep(200);
+		assertThat(이력.저장된).as("취소된 대화는 이력으로 남기지 않는다").isEmpty();
 	}
 
 	@Test
@@ -155,8 +182,8 @@ class ChatPersistenceTest {
 	}
 
 	@Test
-	@DisplayName("LLM 장애로 스트림이 error로 끝나면 아무것도 저장하지 않는다")
-	void 장애시에는_저장하지_않는다() throws InterruptedException {
+	@DisplayName("LLM 장애로 error로 끝나면 이력은 안 남기고 감사는 ERROR로 남긴다 (R-5)")
+	void 장애시_이력은_없고_감사는_ERROR다() throws InterruptedException {
 		ChatService service =
 				new ChatService(
 						검색_대역(),
@@ -171,9 +198,15 @@ class ChatPersistenceTest {
 				service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
 
 		assertThat(events).last().isInstanceOf(ChatEvent.Error.class);
+
+		감사.기록_완료.await(5, TimeUnit.SECONDS);
+		assertThat(감사.기록된)
+				.as("근거는 이미 전달됐으므로 오류로 끝나도 감사는 남는다 (R-5)")
+				.singleElement()
+				.satisfies(r -> assertThat(r.outcome()).isEqualTo(AuditOutcome.ERROR));
+
 		Thread.sleep(200);
 		assertThat(이력.저장된).as("실패한 대화를 이력으로 남기지 않는다").isEmpty();
-		assertThat(감사.기록된).isEmpty();
 	}
 
 	// ─── 대역 ───
