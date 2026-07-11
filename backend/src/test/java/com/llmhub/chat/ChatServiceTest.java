@@ -2,10 +2,16 @@ package com.llmhub.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.llmhub.audit.AuditLogRepository;
+import com.llmhub.audit.AuditOutcome;
+import com.llmhub.audit.AuditRecord;
 import com.llmhub.search.SearchService;
 import com.llmhub.search.Source;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,12 +51,21 @@ class ChatServiceTest {
 	}
 
 	private ChatService 서비스(SearchService search, ChatModel model, java.time.Duration 유휴_타임아웃) {
+		return 서비스(search, model, 유휴_타임아웃, record -> {});
+	}
+
+	private ChatService 서비스(SearchService search, ChatModel model, AuditLogRepository 감사) {
+		return 서비스(search, model, java.time.Duration.ofSeconds(60), 감사);
+	}
+
+	private ChatService 서비스(
+			SearchService search, ChatModel model, java.time.Duration 유휴_타임아웃, AuditLogRepository 감사) {
 		return new ChatService(
 				search,
 				ChatClient.builder(model).build(),
 				new RecentTurnsContextAssembler(2, 100_000),
 				저장하지_않는_이력(),
-				record -> {},
+				감사,
 				com.llmhub.audit.AuditScope.FULL,
 				유휴_타임아웃);
 	}
@@ -180,6 +195,62 @@ class ChatServiceTest {
 	}
 
 	@Test
+	@DisplayName("검색 단계 실패도 감사에 ERROR로 정확히 1건 남는다 (R-5 갭)")
+	void 검색_실패도_감사에_남는다() throws InterruptedException {
+		// 감사 doFinally가 flatMapMany 안쪽에 있으면 검색 onError가 그것을 우회해 감사가 0건이 된다.
+		// LLM 실패는 ERROR로 남는데 검색 실패는 누락되는 비대칭을 막는다 (S5, REQ-AUDIT, R-5).
+		SearchService 고장난_검색 =
+				new SearchService(q -> q, new 대역_임베딩(), (t, v, tags, k) -> {
+					throw new IllegalStateException("ES 다운");
+				}, 5);
+		감사_수집 감사 = new 감사_수집(1);
+		ChatService service = 서비스(고장난_검색, 텍스트를_흘리는_모델("답"), 감사);
+
+		service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+
+		assertThat(감사.대기(java.time.Duration.ofSeconds(2)))
+				.as("검색 실패 시에도 감사가 정확히 한 번 남아야 한다 (현재는 0건)")
+				.isTrue();
+		assertThat(감사.records)
+				.singleElement()
+				.satisfies(
+						r -> {
+							assertThat(r.outcome()).isEqualTo(AuditOutcome.ERROR);
+							assertThat(r.requesterId()).isEqualTo(요청자);
+							assertThat(r.traceId()).isEqualTo("trace-1");
+						});
+	}
+
+	@Test
+	@DisplayName("LLM 단계 실패는 감사에 ERROR로 정확히 1건 남는다 (이중기록 없음)")
+	void LLM_실패는_감사에_한번만_남는다() throws InterruptedException {
+		ChatModel 고장난_모델 = new 대역_모델(prompt -> Flux.error(new IllegalStateException("게이트웨이 다운")));
+		감사_수집 감사 = new 감사_수집(1);
+		ChatService service = 서비스(검색_대역(검색결과), 고장난_모델, 감사);
+
+		service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+
+		assertThat(감사.대기(java.time.Duration.ofSeconds(2))).isTrue();
+		Thread.sleep(150); // 이중 기록이 있으면 잡히도록 잠깐 더 기다린다.
+		assertThat(감사.records).hasSize(1);
+		assertThat(감사.records.get(0).outcome()).isEqualTo(AuditOutcome.ERROR);
+	}
+
+	@Test
+	@DisplayName("정상 완료는 감사에 COMPLETE로 정확히 1건 남는다")
+	void 성공은_감사에_COMPLETE로_남는다() throws InterruptedException {
+		감사_수집 감사 = new 감사_수집(1);
+		ChatService service = 서비스(검색_대역(검색결과), 텍스트를_흘리는_모델("답"), 감사);
+
+		service.stream(세션ID, 요청자, "연차휴가는?", Set.of("public"), List.of(), "trace-1").collectList().block();
+
+		assertThat(감사.대기(java.time.Duration.ofSeconds(2))).isTrue();
+		Thread.sleep(150);
+		assertThat(감사.records).hasSize(1);
+		assertThat(감사.records.get(0).outcome()).isEqualTo(AuditOutcome.COMPLETE);
+	}
+
+	@Test
 	@DisplayName("LLM이 토큰을 멈추면 유휴 타임아웃이 error 이벤트로 스트림을 닫는다")
 	void 멈춘_LLM은_유휴_타임아웃으로_닫힌다() {
 		// 게이트웨이가 조용히 멈추면(모델 로딩·GPU 점유) 에러가 emit되지 않는다. onErrorResume은
@@ -298,6 +369,26 @@ class ChatServiceTest {
 
 	private static ChatResponse 응답(String delta) {
 		return new ChatResponse(List.of(new Generation(new AssistantMessage(delta))));
+	}
+
+	/** 감사를 수집한다. 기록은 격리 스케줄러에서 비동기로 일어나므로 래치로 기다린다. */
+	private static final class 감사_수집 implements AuditLogRepository {
+		final List<AuditRecord> records = new CopyOnWriteArrayList<>();
+		private final CountDownLatch latch;
+
+		감사_수집(int 기대건수) {
+			this.latch = new CountDownLatch(기대건수);
+		}
+
+		@Override
+		public void record(AuditRecord record) {
+			records.add(record);
+			latch.countDown();
+		}
+
+		boolean 대기(java.time.Duration 상한) throws InterruptedException {
+			return latch.await(상한.toMillis(), TimeUnit.MILLISECONDS);
+		}
 	}
 
 	private static final class 대역_임베딩 implements com.llmhub.common.embedding.EmbeddingClient {

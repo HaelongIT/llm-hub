@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -96,10 +98,16 @@ public final class ChatService {
 			String traceId) {
 
 		StringBuilder answer = new StringBuilder();
+		// 감사는 검색·LLM·완료·취소 어디서 끝나든 정확히 한 번 남겨야 한다 (S5, REQ-AUDIT, R-5). 그래서 감사
+		// doFinally를 flatMapMany '바깥' 최외곽에 둔다. 검색이 onError면 매퍼가 실행되지 않아 매퍼 안쪽에
+		// 붙인 doFinally는 구독조차 되지 않는다 — 그것이 검색 실패·조기 취소 시 감사 0건이던 원인이다.
+		AtomicReference<List<Source>> emittedSources = new AtomicReference<>(List.of());
+		AtomicBoolean errored = new AtomicBoolean(false);
 
 		return Blocking.call(() -> searchService.search(question, accessTags))
 				.flatMapMany(
 						sources -> {
+							emittedSources.set(sources);
 							// 질문·응답 원문은 로그에 남기지 않는다 (SEC-3). 전문은 감사 로그가 맡는다 (S5, E5).
 							log.info("LLM 호출 시작 traceId={} sources={} questionChars={}", traceId, sources.size(), question.length());
 							return Flux.concat(
@@ -112,19 +120,7 @@ public final class ChatService {
 											() -> {
 												log.info("응답 완료 traceId={} answerChars={}", traceId, answer.length());
 												persistHistory(sessionId, question, snapshot(answer), sources, traceId);
-											})
-									// 감사는 취소·오류를 포함해 항상 남긴다. 취소는 doOnComplete를 실행시키지 않으므로,
-									// 근거가 이미 전달된 대화(S6)가 감사에서 사라지는 것을 막는다 (R-5). doFinally는
-									// complete·cancel·error 모든 종료에서 정확히 한 번 돈다.
-									.doFinally(
-											signal ->
-													recordAudit(
-															requesterId,
-															question,
-															snapshot(answer),
-															sources,
-															traceId,
-															outcomeOf(signal)));
+											});
 						})
 				.onErrorResume(
 						error -> {
@@ -132,9 +128,23 @@ public final class ChatService {
 							//
 							// 예외 문구를 그대로 실어 보내지 않는다. ES 인덱스명·게이트웨이 주소 같은 내부 사정이
 							// 브라우저로 나간다 (SEC-3). 원인은 로그에 있고, 사용자는 추적 ID로 신고한다.
+							// 감사에 ERROR로 남기려고 표시한다 — onErrorResume이 오류를 삼켜 아래 doFinally는
+							// ON_COMPLETE 신호를 받기 때문이다.
+							errored.set(true);
 							log.error("채팅 스트림 실패 traceId={}", traceId, error);
 							return Flux.just(new ChatEvent.Error(USER_FACING_ERROR.formatted(traceId)));
-						});
+						})
+				// 감사는 검색 실패·조기 취소를 포함한 모든 종료에서 정확히 한 번. 취소는 CANCEL 신호로 오고,
+				// 오류는 위에서 삼켜졌으므로 errored로 구분한다 (R-5).
+				.doFinally(
+						signal ->
+								recordAudit(
+										requesterId,
+										question,
+										snapshot(answer),
+										emittedSources.get(),
+										traceId,
+										outcomeOf(signal, errored.get())));
 	}
 
 	private Flux<ChatEvent> answerStream(
@@ -163,12 +173,15 @@ public final class ChatService {
 		}
 	}
 
-	private static AuditOutcome outcomeOf(SignalType signal) {
-		return switch (signal) {
-			case ON_COMPLETE -> AuditOutcome.COMPLETE;
-			case CANCEL -> AuditOutcome.CANCELLED;
-			default -> AuditOutcome.ERROR;
-		};
+	/**
+	 * onErrorResume이 오류를 error 이벤트로 바꿔 삼키므로, 종료 신호만으로는 오류를 알 수 없다(대부분
+	 * ON_COMPLETE로 온다). 취소는 CANCEL 신호로 구분되고, 나머지는 {@code errored} 플래그로 판정한다 (R-5).
+	 */
+	private static AuditOutcome outcomeOf(SignalType signal, boolean errored) {
+		if (signal == SignalType.CANCEL) {
+			return AuditOutcome.CANCELLED;
+		}
+		return errored ? AuditOutcome.ERROR : AuditOutcome.COMPLETE;
 	}
 
 	/** 이력 저장을 격리 스케줄러로 던지고 <b>구독만 한다</b>. 스트림은 여기서 기다리지 않는다 (S13). */
