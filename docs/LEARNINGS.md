@@ -415,3 +415,12 @@
   - **L-9 (Keycloak healthcheck):** KC 26 이미지는 minimal(curl/wget/셸 부재)이라 compose healthcheck 명령을 깔끔히 넣기 어렵다. 위험은 좁다 — 프론트는 기동 시 KC를 부르지 않고, 브라우저가 로그인 때 KC(8081 publish)를 직접 친다. KC가 준비되기 전 ~수십 초 안에 로그인하면 실패할 수 있는 정도. 제대로 된 probe와 함께 재검토.
   - **L-11 (업로드 MIME 스니핑 없음):** MIME이 클라이언트 제공값이다. 내용 스니핑(magic bytes)은 v0 범위를 넘는 기능이고, 허용목록 + ADMIN 전용이라 영향이 제한적이다.
   - **L-12:** 버그가 아니라 확인 노트(작업 트리 `.env`에 실 시크릿, 커밋 대상 파일은 깨끗). 조치 없음.
+
+## [2026-07-11] 방향 A 위 후속 세부 UI — 프론트 다듬기(백엔드 무변경)
+열람실(방향 A) 위에 대화 컨트롤·상태 방향·근거 심화·오리엔테이션 4개 번들을 얹었다. 근거 우선 시그니처는 유지, 주변만 조용히 강화.
+- **`useChat`(AI SDK v5)이 이미 `stop()`을 노출한다.** 스트리밍 중 `보내기`를 `중지`로 바꿔 `stop()`을 걸면, 배선돼 있던 R-17(취소 전파)·R-5(감사 CANCELLED)가 그대로 사용자 손에 들어온다. 새 배관 없이 governed·auditable 정체성을 UI로 노출.
+- **IBM Plex Mono에는 한글 글리프가 없다.** 세션 날짜 그룹 라벨(`오늘/어제/이번 주`)을 `var(--mono)` + `font-size:10px` + `letter-spacing:0.08em` + `text-transform:uppercase`(라틴 캡션 관용구)로 줬더니, 한글이 폴백 폰트로 떨어지고 2음절이 벌어져 흐리게 뭉갰다. **한글 UI 라벨은 `var(--sans)`로.** 11px/600/letter-spacing 0.01em로 바꿔 가독성 회복(Playwright 스크린샷으로 확인). uppercase는 한글에 무의미(no-op).
+- **역할은 노출하되 태그는 아니다(S4).** `auth.ts` jwt 콜백이 `realm_access.roles`에서 앱 역할(USER/ADMIN)만 뽑아 세션에 싣고 사이드바 칩으로 보인다. 접근태그 매핑은 백엔드(앞단 게이트) 소유라 프론트가 중복하지 않는다. 역할 디코딩은 access token 페이로드를 base64url 디코드(`atob(payload.replace(/-/g,'+').replace(/_/g,'/'))`).
+- **하드 삭제엔 되돌리기 대신 인라인 확인.** 세션 삭제는 코어에서 하드+cascade라 undo 토스트가 거짓말이 된다. 그 자리 인라인 확인(`삭제할까요? 예/취소`)으로.
+- **날짜 그룹핑은 순수함수 + 로컬-달력-일 기준.** `time.dateGroup(iso, nowMs)`는 `setHours(0,0,0,0)`로 로컬 자정 경계를 잡아 오늘/어제/이번 주/이전을 가른다. 테스트는 TZ에 흔들리지 않게 `new Date(2026,6,11,14,0)` 로컬 생성자로 짰다(UTC ISO 리터럴 금지). `DATE_GROUP_ORDER` 상수로 렌더 순서 고정.
+- **검증 방식:** 임시 `/preview` 라우트에 각 상태를 목데이터로 렌더(searchParams로 welcome/conversation 분기) → Playwright(자체 브라우저) 스크린샷·비평(콘솔 에러 0) → 프리뷰 삭제. tsc·next build·npm test(61 pass, dateGroup 신규 4개 포함) 통과. **실제 로그인 흐름(R-8 쿠키 복호·401→로그인·L-8 세션 전환)은 Claude Chrome 확장 연결 후로 유보 — OQ-012.**
