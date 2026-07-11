@@ -1,4 +1,5 @@
 import { bearerToken } from '@/lib/core';
+import { hasUsableToken } from '@/lib/token';
 import { relayFailure } from '@/lib/upstream';
 import { translateCoreStream, UI_MESSAGE_STREAM_HEADERS } from '@/lib/ui-message-stream';
 
@@ -15,10 +16,11 @@ const CORE_URL = process.env.CORE_BASE_URL ?? 'http://localhost:8080';
 export async function POST(request: Request) {
 	// 토큰은 세션이 아니라 암호화된 JWT 쿠키에서 서버측으로 읽는다 (R-8). 갱신 실패 세션은
 	// 만료된 베어러를 들고 있으므로 상류로 보내지 않는다 (S25).
-	const { accessToken, error } = await bearerToken();
-	if (!accessToken || error) {
+	const token = await bearerToken();
+	if (!hasUsableToken(token)) {
 		return new Response('Unauthorized', { status: 401 });
 	}
+	const { accessToken } = token;
 
 	const body = await request.json();
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { EXPIRY_SKEW_SECONDS, isExpired, refreshAccessToken } from './token.ts';
+import { EXPIRY_SKEW_SECONDS, hasUsableToken, isExpired, refreshAccessToken } from './token.ts';
 import type { KeycloakConfig, TokenSet } from './token.ts';
 
 /**
@@ -54,6 +54,20 @@ describe('만료 판정', () => {
 
 	it('만료 시각을 모르면 만료로 본다', () => {
 		assert.equal(isExpired({}, 0), true);
+	});
+});
+
+describe('BFF가 토큰을 쓸 수 있는가 (S25)', () => {
+	it('access token이 있고 error가 없으면 쓸 수 있다', () => {
+		assert.equal(hasUsableToken({ accessToken: 'good' }), true);
+	});
+
+	it('갱신 실패(error)면 access token이 있어도 쓸 수 없다 — 죽은 베어러를 상류로 안 보낸다', () => {
+		assert.equal(hasUsableToken({ accessToken: 'stale', error: 'RefreshAccessTokenError' }), false);
+	});
+
+	it('access token이 없으면 쓸 수 없다', () => {
+		assert.equal(hasUsableToken({}), false);
 	});
 });
 

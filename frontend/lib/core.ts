@@ -1,6 +1,7 @@
 import { headers } from 'next/headers';
 import { getToken } from 'next-auth/jwt';
 
+import { hasUsableToken } from '@/lib/token';
 import type { TokenSet } from '@/lib/token';
 
 /**
@@ -41,10 +42,11 @@ export async function bearerToken(): Promise<{ accessToken?: string; error?: str
  * 사용자는 원인을 알 수 없다. 여기서 끊는다 (S25).
  */
 export async function proxyToCore(path: string, init: RequestInit = {}): Promise<Response> {
-	const { accessToken, error } = await bearerToken();
-	if (!accessToken || error) {
+	const token = await bearerToken();
+	if (!hasUsableToken(token)) {
 		return new Response('Unauthorized', { status: 401 });
 	}
+	const { accessToken } = token;
 
 	const upstream = await fetch(`${CORE_URL}${path}`, {
 		...init,

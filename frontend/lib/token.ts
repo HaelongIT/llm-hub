@@ -35,6 +35,17 @@ export function isExpired(
 }
 
 /**
+ * BFF가 이 토큰으로 코어를 불러도 되는가.
+ *
+ * access token이 있어야 하고, 갱신 실패(`error`)가 없어야 한다. <b>둘 다 봐야 한다.</b> 갱신에 실패한 세션은
+ * 만료된 베어러를 들고 있으므로, 그것을 상류로 보내면 코어가 401을 줄 뿐이고 사용자는 원인을 알 수 없다 (S25).
+ * proxyToCore와 채팅 스트림 라우트가 공유해, error 가드를 지우면 이 판정 테스트가 잡는다.
+ */
+export function hasUsableToken(token: { accessToken?: string; error?: string }): boolean {
+	return Boolean(token.accessToken) && !token.error;
+}
+
+/**
  * 갱신은 **던지지 않는다.** 실패는 `error` 필드로 표시한다 — jwt 콜백에서 예외가 나면
  * Auth.js의 동작이 예측하기 어려워진다. 호출자는 `error`를 보고 재로그인을 유도한다.
  */
