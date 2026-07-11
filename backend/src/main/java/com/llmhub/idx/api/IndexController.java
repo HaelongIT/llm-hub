@@ -39,10 +39,15 @@ public class IndexController {
 
 	private final IndexingService indexingService;
 	private final AppUserRepository userRepository;
+	private final int maxUploadBytes;
 
-	public IndexController(IndexingService indexingService, AppUserRepository userRepository) {
+	public IndexController(
+			IndexingService indexingService,
+			AppUserRepository userRepository,
+			com.llmhub.idx.config.IdxProperties properties) {
 		this.indexingService = indexingService;
 		this.userRepository = userRepository;
+		this.maxUploadBytes = (int) properties.maxUploadBytes();
 	}
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -55,7 +60,9 @@ public class IndexController {
 		MediaType contentType = file.headers().getContentType();
 		List<String> tags = Arrays.stream(accessTags.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
 
-		return DataBufferUtils.join(file.content())
+		// 상한을 조인 단계에 건다. 안 걸면 거대한 업로드가 전부 힙에 올라온 뒤에야 검증기가 거부해
+		// OOM·디스크 소진으로 코어가 죽을 수 있다 (SEC-4). 초과 시 DataBufferLimitException.
+		return DataBufferUtils.join(file.content(), maxUploadBytes)
 				.map(IndexController::toBytes)
 				// 내용이 한 조각도 오지 않으면 join()은 빈 Mono다. 그대로 두면 flatMap이 통째로 건너뛰어지고
 				// 핸들러가 아무 값도 내지 않는다 — 색인은 없었는데 응답은 200이다. 빈 바이트로 내려보내
@@ -73,7 +80,11 @@ public class IndexController {
 																content,
 																tags,
 																// 누가 올렸는지 document에 남긴다 (docs/03). 권한 판단이 아니라 신원 확인이다.
-																userRepository.ensureExists(jwt.getSubject())))));
+																userRepository.ensureExists(jwt.getSubject())))))
+				// 크기 초과는 클라이언트 잘못이다. 검증기의 거부와 같은 400으로 맞춘다 (SEC-4, SEC-3).
+				.onErrorMap(
+						org.springframework.core.io.buffer.DataBufferLimitException.class,
+						e -> new com.llmhub.idx.upload.UploadRejectedException("업로드 크기 상한 초과"));
 	}
 
 	/**

@@ -387,3 +387,9 @@
 - **R-10:** 세션 `updated_at`이 생성 때만 세팅되고 메시지가 붙어도 갱신되지 않아, 사이드바 "최근 활동순"이 사실상 "생성순"이었다. `appendTurn`이 `ChatSessionEntity.touch(now)`로 갱신한다(영속 상태라 커밋 시 dirty checking으로 UPDATE).
 - **테스트 함정 — `@Transactional`은 프록시가 있어야 한다.** 원자성(R-12)을 테스트하려고 리포지토리를 `new`로 만들면 `@Transactional`이 안 걸려(프록시 없음) 각 save가 독립 트랜잭션이 된다 → 옛 버그 동작이 재현돼 테스트가 거짓 통과·거짓 실패한다. **오토와이어된 빈**을 써야 한다. 시각 갱신(R-10)은 결정적으로 보려고 `@TestConfiguration`에서 `@Primary` 가변 Clock을 주입했다. null content로 not-null 위반을 일으켜 롤백을 검증(뮤테이션으로 touch·@Transactional 제거 시 red 확인).
 - **BlockHound는 JVM 전역·영구 계측이다.** 44개 테스트 클래스 + 여러 Spring 컨텍스트가 한 JVM에 누적되니, @SpringBootTest 하나를 더했더니 계측 에이전트의 네이티브 할당이 실패했다: `java.lang.instrument ASSERTION FAILED: can't create name string`(JPLISAgent.c). 테스트 단언 실패가 아니라 **JVM 크래시**라 Gradle이 `TestSuiteExecutionException: Could not complete execution`으로 보고한다 — 헷갈리기 쉽다. **해결: `setForkEvery(15)` + `maxHeapSize=2g`.** JVM을 주기적으로 재활용해 누적을 끊는다. fork는 순차 실행이라 Testcontainers 피크 자원(ES/PG 각 1개)은 그대로다. 리뷰가 예측한 "forkEvery 부재" 취약성이 실제로 터졌다.
+
+## [2026-07-11] 업로드 상한은 조인 단계에 — 그리고 그 테스트를 결정적으로 (R-13)
+- **문제:** `DataBufferUtils.join(file.content())`에 상한 인자가 없어, 거대한 업로드가 **전부 힙에 올라온 뒤에야** UploadValidator가 거부했다. ADMIN 한 명의 사고성 업로드로 코어가 OOM·디스크 소진될 수 있다 (SEC-4).
+- **수정:** `join(file.content(), maxUploadBytes)` 오버로드로 조인 단계에서 거부한다. 초과 시 `DataBufferLimitException` → `onErrorMap`으로 `UploadRejectedException`(400)에 맞춘다. 상한은 컨트롤러에 `IdxProperties` 주입.
+- **테스트 결정성 함정:** 조인 상한과 validator 상한이 **같은 값**(maxUploadBytes)이라, 상한 초과 업로드는 조인 수정이 없어도 validator가 잡아 400을 준다 → 상태코드만 보는 테스트는 **수정 유무를 구분 못 한다**(리뷰가 경고한 "강제 못 하는 테스트"). **결정적으로 만드는 법:** 색인 서비스를 검증하지 않는 `@MockitoBean`으로 두면, 조인 상한이 없을 때 상한 초과 내용이 서비스까지 도달해 200이 된다 → 테스트가 그 차이를 잡는다. `verify(never()).index(...)`로 "서비스에 닿지 않았음"도 단언. 뮤테이션(상한 제거)으로 red 확인.
+- **주의:** 이 저장소는 보통 손으로 쓴 대역을 쓰지만, 여기선 "서비스 호출 여부"를 구분해야 결정적이라 `@MockitoBean`(Spring Boot 3.4+; `@MockBean` 대체)을 예외적으로 썼다. `IndexingService`가 final이지만 최신 Mockito(inline)가 mock한다.

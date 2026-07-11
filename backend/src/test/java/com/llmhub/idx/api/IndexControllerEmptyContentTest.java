@@ -51,7 +51,7 @@ class IndexControllerEmptyContentTest {
 	@Test
 	@DisplayName("내용이 비어 있는 파트는 조용히 200이 되지 않고 거부된다")
 	void 내용이_없는_파트는_거부된다(@TempDir Path root) {
-		IndexController controller = new IndexController(색인_서비스(root), 대역_사용자저장소());
+		IndexController controller = new IndexController(색인_서비스(root), 대역_사용자저장소(), 대역_설정());
 
 		Mono<?> 응답 = controller.index(내용이_비어있는_파트(), "빈-문서", "public", 대역_토큰());
 
@@ -110,6 +110,12 @@ class IndexControllerEmptyContentTest {
 
 	private static AppUserRepository 대역_사용자저장소() {
 		return subject -> UUID.fromString("11111111-1111-1111-1111-111111111111");
+	}
+
+	/** 이 테스트는 빈 내용 경로만 본다. 컨트롤러가 쓰는 값은 maxUploadBytes뿐이라 나머지는 채우지 않는다. */
+	private static com.llmhub.idx.config.IdxProperties 대역_설정() {
+		return new com.llmhub.idx.config.IdxProperties(
+				java.util.Map.of(), 50_000_000L, null, 0, null, null, null, null, null, null, null);
 	}
 
 	private static org.springframework.security.oauth2.jwt.Jwt 대역_토큰() {
