@@ -51,7 +51,7 @@
 
 ## 4. 작업 워크플로우 (매 작업 반복)
 
-1. **읽기** — `CLAUDE.md` + `docs/LEARNINGS.md` + `docs/OPEN-QUESTIONS.md`(OPEN 항목) + 관련 `docs/`(특히 해당 `requirements/REQ-*.md`와 `docs/02-decisions.md`)를 먼저 읽는다.
+1. **읽기** — `CLAUDE.md` + `docs/LEARNINGS.md` + `docs/OPEN-QUESTIONS.md`(OPEN 항목) + 관련 `docs/`(특히 해당 `requirements/REQ-*.md`와 `docs/02-decisions.md`)를 먼저 읽는다. UI(프론트) 작업이면 `docs/ui-design.md`(참고 지도)도 먼저 읽는다.
 2. **계획** — 무엇을 어느 모듈에 만들지, 어떤 경계(E)를 지켜야 하는지 확인. 불명확하면 §8의 정지 조건으로 판정한다.
 3. **TDD** — `docs/05-tdd-workflow.md`대로 **테스트 먼저 → 실패 확인 → 구현 → 통과 → 리팩터**.
 4. **기록** — 확정된 사실은 `docs/LEARNINGS.md`에, 사람 확인이 필요하지만 지금 멈출 필요는 없는 항목은 `docs/OPEN-QUESTIONS.md`에 남긴다(`docs/06`).
@@ -81,6 +81,7 @@
 - **메모리:** 매 TDD 사이클에서 배운 것(라이브러리 실제 동작, 경계 구현 방식, 함정)을 `docs/LEARNINGS.md`에 append. 다음 세션은 이 파일을 읽고 시작한다.
 - **보류 질문:** 사람 확인이 필요하지만 지금 멈출 이유는 없는 항목은 `docs/OPEN-QUESTIONS.md`에 남긴다. 경계는 한 줄이다 — **아직 하거나 정해야 할 일이 남았으면 OPEN-QUESTION, 남은 게 없는 확정된 사실이면 LEARNING.**
 - **코드리뷰:** 리뷰를 돌리면 **결과를 반드시 문서로 남긴다.** 위치는 `docs/reviews/YYYY-MM-DD-<범위>.md`. 발견은 **추측이 아니라 확인**이어야 한다 — 재현·실행한 것은 `[실증]`, 코드로만 확정한 것은 `[코드]`, 확인하지 못한 것은 `[미검증]`으로 표시한다. 상세는 `docs/06`.
+- **UI 문서:** 프론트 UI를 바꾸면 `docs/ui-design.md`를 **반드시 함께 갱신**한다(지도가 실제와 어긋나면 함정이 된다). 단 이 문서는 **참고 지도**이지 소스가 아니다 — 값·동작은 실제 컴포넌트·CSS(`frontend/`)를 읽고 확정하며, 이 문서만 보고 지레짐작하지 않는다.
 
 ---
 
@@ -112,7 +113,7 @@
 
 **결정 문서를 스스로 고치지 않는다.** 사실 오류를 발견해도 마찬가지다. 문서의 문자 그대로의 지시가 이 스택에서 **실행 불가**하고 같은 목적을 이루는 메커니즘이 **정확히 하나**라면, 코드는 그 메커니즘으로 구현하고 LEARNINGS에 남긴 뒤 문서 수정안을 OQ로 올린다. 그 외에는 HALT.
 
-**에이전트가 쓸 수 있는 문서:** `docs/LEARNINGS.md`, `docs/OPEN-QUESTIONS.md`, `docs/syj/**`(사용자 소통 창구, 아래), 그리고 `REQ-*.md`·`docs/00`의 `- [ ]` → `- [x]` 체크박스뿐.
+**에이전트가 쓸 수 있는 문서:** `docs/LEARNINGS.md`, `docs/OPEN-QUESTIONS.md`, `docs/ui-design.md`(UI 참고 지도, §6), `docs/syj/**`(사용자 소통 창구, 아래), 그리고 `REQ-*.md`·`docs/00`의 `- [ ]` → `- [x]` 체크박스뿐.
 
 **`docs/syj/`는 사용자(syj)↔에이전트 소통 창구다.** 사용자가 참고 자료·초안·요청을 주면 거기서 읽고, 사람이 읽을 산출물(문서·정리·설명)을 만들면 거기에 둔다. `docs/`의 나머지(00~08·requirements·reviews·LEARNINGS·OPEN-QUESTIONS)는 **에이전트용 거버넌스·명세·지식**이고, `docs/syj`는 **사람과 주고받는 공간**이다. 에이전트는 여기 자유롭게 쓸 수 있으나(잠금 대상 아님), 비밀정보는 여기에도 커밋하지 않는다(SEC-3). 상세: `docs/syj/README.md`.
 
