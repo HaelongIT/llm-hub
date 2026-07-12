@@ -460,3 +460,13 @@ fail-closed로 401**(보안 구멍 아님, 자기 DoS).
 - **F6 — `String.substring`은 UTF-16 코드유닛 기준이라 서로게이트 쌍을 쪼갠다.** 60번째가 쌍의 low half면(charAt(59)이 high surrogate) 한 칸 앞에서 자른다. 테스트는 `Character.toChars(0x1D518)`로 보조평면 문자를 만들어(소스 인코딩 무관) UTF-8 왕복 동일성으로 고립 서로게이트 부재를 단언.
 - **F7 — 신뢰 못 하는 입력에 `[...messages]` 스프레드는 undefined면 TypeError 500.** `lastUserText`를 `lib/`로 추출해 `Array.isArray` 방어, 라우트는 비배열이면 400.
 - **커밋 훅이 백엔드 변경마다 전체 스위트(~4.5분, Testcontainers)를 돌린다.** 가끔 컨테이너 기동 flake로 실패하니 재시도로 통과. 백엔드 커밋을 백그라운드로 돌리고 그 사이 프론트/문서를 준비하면 대기를 겹칠 수 있다(단 훅 실행 중 백엔드 파일·gradle은 건드리지 않는다 — 워킹트리를 읽으므로).
+
+## [2026-07-12] 브라우저 E2E 검증 — Playwright + 격리 운영 스택 (B1·F3·OQ-012)
+확장 없이 실제 로그인 흐름을 검증하는 법과 함정.
+- **Chrome 확장 없이 Playwright(자체 브라우저)로 실로그인 E2E가 된다.** 브라우저 폼 비밀번호 입력은 가이드라인상 플래그 사안이라, 합성 테스트 계정에 한해 사람 인가를 받고 진행했다. curl/exec로 토큰을 받는 건 API 테스트라 무관.
+- **격리 운영 스택:** `docker compose -p llmhub-e2e --env-file .env.e2e -f docker-compose.yml up -d --build`. `.env.e2e`는 `.env` 복사 + 끝에 오버라이드(포트 18081/13000, `KEYCLOAK_HOSTNAME`/`AUTH_URL`/`FRONTEND_ORIGIN` 시프트, `KEYCLOAK_ISSUER` 외부, `KEYCLOAK_INTERNAL_URL=keycloak:8080`, `DATA_ROOT=./data-e2e`). `--env-file` 중복 키는 **마지막이 이긴다**. `.env.*`·`data-*/`는 gitignore됨. 별도 프로젝트명·네트워크·데이터라 dev 스택 무손상.
+- **함정 — postgres init 레이스 + restart 정책 부재.** 최초 기동 시 postgres가 init 스크립트(keycloak DB 생성) 도중 소켓으로 `pg_isready`를 통과시켜 compose가 "healthy"로 보는데 TCP는 아직 안 열려 있다. backend(restart 정책 없음, B3)가 그 창에서 접속 시도→`Connection refused`로 즉사한다. **해결: init이 끝난 뒤 `up -d`를 한 번 더** 돌리면 backend가 붙는다. (리뷰 B3의 restart 정책이 있었다면 자동 복구됐을 상황.)
+- **B1 실동작:** 브라우저는 외부 authorization(`localhost:18081`)로 가고, 콜백의 서버측 code→token은 컨테이너 안에서 `keycloak:8080`(내부)로 나가 성공. `KC_HOSTNAME` 고정이라 내부로 받은 토큰도 `iss=외부`가 되어 프론트의 issuer(외부) 검증과 맞는다 — 이 성질이 백채널 분리를 성립시킨다. dev(start-dev, KC_HOSTNAME 미설정)에선 재현 불가라 운영 config 스택이 필요했다.
+- **F3 검증법:** `accessTokenLifespan`을 120s로 낮추고(kcadm `update realms/llmhub -s accessTokenLifespan=120`), 로그인 5분+ 후 BFF 액션이 성공하면 갱신이 돈 것이다(안 돌면 만료 후 401). `refetchInterval(60) ≤ skew(90)`이라 만료 전 반드시 폴링이 갱신을 건다.
+- **401→로그인 검증법:** 사용자를 `enabled=false`로 비활성화하면 다음 refresh가 거부된다 → `session.error` → 리로드 시 page.tsx가 로그인 게이트를 띄운다.
+- **빈 스택의 채팅은 `index_not_found`로 실패한다.** 문서를 색인하지 않으면 `llmhub-chunks` 인덱스가 없어 검색이 예외 → `event:error`. 성공 스트림(text)·취소를 브라우저로 보려면 ADMIN으로 문서 1건을 색인해야 한다(이번엔 생략, 단위테스트로 커버).
