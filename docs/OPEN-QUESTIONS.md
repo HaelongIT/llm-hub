@@ -369,9 +369,13 @@
 - **401→로그인 화면** — 토큰 만료(5분)·refresh·30분 idle 후 401→로그인. 채팅 라우트가 401을 502로 안 뭉개는지.
 
 **여기서 함께 고칠 2026-07-11 리뷰 발견(수정+검증):** 인증 변경이라 실브라우저로만 검증되므로 이 세션으로 미룬다.
-- **B1 (운영 프론트 백채널 도달 불가)** — 서버측 code→token·refresh가 외부 issuer(`KEYCLOAK_URL`)로 나가는데
-  컨테이너 안에서 기본 `localhost:8081`은 자기 자신이다(`auth.ts:21`·`token.ts:63`). 브라우저용(외부)·백채널용
-  (내부 `keycloak:8080`) issuer를 분리하거나 외부 URL의 컨테이너 도달성을 요구로 명시. **운영 compose 스모크로 검증.**
+- **B1 (운영 프론트 백채널 도달 불가) — 코드 수정 완료(`78ae253`), E2E 검증 대기.** `KEYCLOAK_INTERNAL_URL`을
+  도입해 백채널(token·userinfo·jwks·refresh)은 내부(`keycloak:8080`), authorization·issuer는 외부로 분리했다.
+  모든 엔드포인트 명시로 외부 discovery를 건너뛴다. dev는 미설정→외부 폴백이라 불변(회귀 없음). 검증됨:
+  tsc·build·dev 테스트 green, 컨테이너→`keycloak:8080` well-known 도달성 HTTP 200. **남은 검증:** 운영 compose
+  (KC_HOSTNAME 고정 + 컨테이너 프론트)를 띄워 **Playwright로 실제 로그인 완주**(code→token 백채널 성공 = B1 확인).
+  Chrome 확장 없이 Playwright로 가능하나 프론트 이미지 빌드 + 격리 스택이 필요해 무겁다 → 아래 브라우저 검증들과
+  한 세션에 묶는 게 효율적이다.
 - **F3 (활성 세션 중 토큰 미갱신)** — `bearerToken`은 `getToken`(복호화만)이라 갱신이 없고, 갱신은 `auth.ts` jwt
   콜백(서버렌더·`/api/auth/*`)에만 있다(`core.ts:29`). middleware 갱신 또는 `/api/auth/session` 폴링을 도입.
   **5분 이상 활성 사용 후 401이 안 나는지 브라우저로 검증.**
