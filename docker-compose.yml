@@ -92,6 +92,16 @@ services:
     # 브라우저가 로그인 리다이렉트로 직접 접근한다. 내부망에만 두면 로그인이 불가능하다.
     ports:
       - "${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      # KC 26 이미지엔 curl/wget이 없다. /bin/sh가 bash라 관리 포트(9000)의 /health/ready를 /dev/tcp로 친다
+      # (KC_HEALTH_ENABLED=true). 200 OK면 준비 완료. 이게 없으면 frontend가 KC 기동 전에 떠 초기 로그인이 실패한다 (L-9).
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
     depends_on:
       postgres:
         condition: service_healthy
@@ -213,4 +223,5 @@ services:
       backend:
         condition: service_healthy
       keycloak:
-        condition: service_started
+        # KC가 실제로 준비된 뒤에 뜬다. service_started면 KC 기동 전 창에 첫 로그인이 실패할 수 있다 (L-9).
+        condition: service_healthy
