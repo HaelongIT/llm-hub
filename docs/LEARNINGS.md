@@ -470,3 +470,8 @@ fail-closed로 401**(보안 구멍 아님, 자기 DoS).
 - **F3 검증법:** `accessTokenLifespan`을 120s로 낮추고(kcadm `update realms/llmhub -s accessTokenLifespan=120`), 로그인 5분+ 후 BFF 액션이 성공하면 갱신이 돈 것이다(안 돌면 만료 후 401). `refetchInterval(60) ≤ skew(90)`이라 만료 전 반드시 폴링이 갱신을 건다.
 - **401→로그인 검증법:** 사용자를 `enabled=false`로 비활성화하면 다음 refresh가 거부된다 → `session.error` → 리로드 시 page.tsx가 로그인 게이트를 띄운다.
 - **빈 스택의 채팅은 `index_not_found`로 실패한다.** 문서를 색인하지 않으면 `llmhub-chunks` 인덱스가 없어 검색이 예외 → `event:error`. 성공 스트림(text)·취소를 브라우저로 보려면 ADMIN으로 문서 1건을 색인해야 한다(이번엔 생략, 단위테스트로 커버).
+
+## [2026-07-12] 스트리밍 잔여 검증 — 직접 BFF fetch + abort→CANCELLED (OQ-012 종료)
+- **UI를 거치지 않고 BFF 스트림을 직접 검증할 수 있다.** `browser_evaluate`로 `/api/chat/stream`에 fetch(세션 쿠키 자동 첨부)해 ReadableStream을 읽으면 AI SDK UI 파트(`start`·`data-sources`·`text-delta`·`text-end`·`finish`·`[DONE]`)를 그대로 셀 수 있다. R-14 성공 경로·L-7 마지막 프레임을 실스택으로 확인. 색인 문서가 있어야 근거가 나온다(dev는 7 chunks 보유).
+- **R-17 취소는 abort→CANCELLED 감사로 실증한다.** 첫 `text-delta` 수신 후 `AbortController.abort()` → 클라 끊김이 BFF `cancel()`→백엔드 Flux 취소로 전파되어 `audit_log`에 CANCELLED가 남는다(F1이 감사 doFinally를 최외곽으로 옮겨 취소도 정확히 기록). 같은 세션 정상 스트림은 COMPLETE — 수명주기 전체가 실스택에서 동작.
+- **장기 실행 dev 서버(npm run dev)는 프론트 변경 누적 후 HMR 잔재로 UI 상태가 글리치날 수 있다.** 세션 선택이 store에 반영 안 되는 현상을 겪었는데, 새로 빌드한 e2e 컨테이너 프론트에선 정상이라 코드 버그가 아니라 HMR 상태였다. 확실히 하려면 dev 프론트를 재시작하거나 컨테이너로 확인한다.
