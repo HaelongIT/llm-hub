@@ -22,8 +22,11 @@ export type KeycloakConfig = {
 
 /**
  * 만료 판정에 두는 여유. 갱신 요청이 날아가는 사이에 만료되면 코어가 401을 준다.
+ *
+ * 활성 세션에서 SessionProvider가 이 값보다 짧은 간격으로 /api/auth/session을 폴링해 jwt 콜백 갱신을
+ * 트리거한다 (리뷰 F3). 폴링 간격 ≤ skew여야 만료 전에 반드시 한 번은 갱신이 걸린다. 폴링 60초 < skew 90초.
  */
-export const EXPIRY_SKEW_SECONDS = 30;
+export const EXPIRY_SKEW_SECONDS = 90;
 
 export function isExpired(
 	token: { expiresAt?: number },

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { IBM_Plex_Mono, IBM_Plex_Sans_KR } from 'next/font/google';
+import { SessionProvider } from 'next-auth/react';
 
 import './globals.css';
 
@@ -25,7 +26,15 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
 		<html lang="ko" className={`${sans.variable} ${mono.variable}`}>
-			<body>{children}</body>
+			<body>
+				{/*
+				 * 활성 클라이언트 세션에서 토큰을 갱신하는 유일한 경로다 (리뷰 F3). BFF 데이터 경로는 getToken
+				 * (복호화만)이라 갱신이 없고, jwt 콜백 갱신은 서버 렌더·/api/auth/* 에서만 돈다. SessionProvider가
+				 * refetchInterval마다 /api/auth/session을 폴링해 jwt 콜백(→ 만료 임박 시 갱신)을 트리거하고 쿠키를
+				 * 갱신한다. 세션에는 토큰이 없으므로(R-8) 이 폴링이 토큰을 브라우저에 노출하지 않는다.
+				 */}
+				<SessionProvider refetchInterval={60}>{children}</SessionProvider>
+			</body>
 		</html>
 	);
 }
