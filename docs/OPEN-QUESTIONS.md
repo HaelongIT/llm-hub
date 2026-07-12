@@ -20,7 +20,7 @@
 - 모든 항목의 `판단 근거`에는 다음 문장이 문자 그대로 들어가야 한다. 정직하게 쓸 수 없으면 보류할 수 없다.
   > `해당 없음: 도달 가능한 보안 사안 · S 항목 · 데이터 정합성 · 결정 문서`
 
-**현재 OPEN: 3건 / 10건**(OQ-011, OQ-012, OQ-013) · BLOCKED 0건 · ANSWERED 3건(OQ-006, OQ-007, OQ-009) · RESOLVED(OQ-010 외)
+**현재 OPEN: 2건 / 10건**(OQ-011, OQ-012) · BLOCKED 0건 · ANSWERED 3건(OQ-006, OQ-007, OQ-009) · RESOLVED(OQ-010, OQ-013 외)
 
 ---
 
@@ -421,10 +421,18 @@ Chrome 확장 없이 **Playwright**(자체 브라우저)로 검증했다. 운영
 ## OQ-013 · 운영 하드닝 — 컨테이너 메모리 제한·JVM 힙·restart 정책 (리뷰 B3)
 
 - **태그:** `REL` `OPS`
-- **상태:** **OPEN**
+- **상태:** **RESOLVED** (2026-07-12, `8f61be8`)
 - **연 시각:** 2026-07-11 (코드리뷰 B3)
 - **Revisit-trigger:** 단일 호스트 운영 배포의 메모리 예산을 정하는 첫 순간
 - **Owner:** human
+
+**처리 (사람 지시, 2026-07-12):** 특정 값을 박는 대신 **파라미터화**로 풀었다. 6개 서비스에
+`mem_limit: ${<SVC>_MEM_LIMIT:-기본값}` + `restart: unless-stopped`를 넣었다(postgres 1g·ES 2g·
+keycloak 1g·litellm 1g·backend 2g·frontend 1g, 합 ~8GB = 16GB 단일 호스트 가정). cgroup 제한이
+생기니 JVM(MaxRAMPercentage=75)이 컨테이너 몫 기준으로 잡힌다. 값은 `.env.example`에 문서화하고
+호스트 사양에 맞게 운영자가 조정한다 — 사이징 결정을 코드에 박지 않고 config로 위임했다(사람 결정 존중).
+restart 정책은 e2e에서 실제로 겪은 postgres init 레이스(backend 즉사)를 자동 복구한다.
+검증: `docker compose -f docker-compose.yml config` — mem_limit·restart 해석·유효성 확인.
 
 **상황:** backend가 `-XX:MaxRAMPercentage=75`(`backend/Dockerfile:42`)로 힙을 잡는데 `docker-compose.yml`
 어느 서비스에도 `mem_limit`/`deploy.resources` cgroup 제한이 없다. 제한이 없으면 JVM은 컨테이너 몫이 아니라
