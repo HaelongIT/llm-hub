@@ -1,6 +1,7 @@
 import { auth, signIn, signOut } from '@/auth';
 import { Chat } from '@/components/Chat';
 import { Sessions } from '@/components/Sessions';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default async function Home() {
 	const session = await auth();
@@ -59,16 +60,19 @@ export default async function Home() {
 							</span>
 						)}
 					</div>
-					<form
-						action={async () => {
-							'use server';
-							await signOut();
-						}}
-					>
-						<button type="submit" className="signout">
-							로그아웃
-						</button>
-					</form>
+					<div className="sidebar__actions">
+						<ThemeToggle />
+						<form
+							action={async () => {
+								'use server';
+								await signOut();
+							}}
+						>
+							<button type="submit" className="signout">
+								로그아웃
+							</button>
+						</form>
+					</div>
 				</div>
 			</aside>
 

@@ -30,6 +30,27 @@
 	--radius: 8px;
 	--radius-lg: 10px;
 	--sidebar-w: 264px;
+
+	color-scheme: light;
+}
+
+/*
+ * 밤 열람실 — 같은 정체성의 야간 버전. 검정이 아니라 따뜻한 먹빛/세이지 다크 종이톤.
+ * 색 토큰 9개만 리매핑하면, 모든 규칙이 var(--token)이라 그대로 따라온다.
+ * 버튼(color:var(--paper) on var(--grounded))도 토큰이 뒤집혀 대비가 유지된다.
+ * data-theme는 layout.tsx의 FOUC 가드가 페인트 전에 확정한다.
+ */
+:root[data-theme='dark'] {
+	--paper: #14201c;
+	--surface: #1c2723;
+	--ink: #e6e9e2;
+	--muted: #93a099;
+	--rule: #2c3833;
+	--grounded: #6cbca0;
+	--grounded-weak: #24352e;
+	--alert: #cf8a52;
+
+	color-scheme: dark;
 }
 
 /* 리셋 */
@@ -208,6 +229,23 @@ blockquote {
 }
 .signout:hover {
 	color: var(--ink);
+}
+.sidebar__actions {
+	display: flex;
+	align-items: center;
+	gap: var(--s3);
+	flex: none;
+}
+.themetoggle {
+	font-size: 14px;
+	line-height: 1;
+	color: var(--muted);
+	padding: var(--s1);
+	border-radius: 5px;
+	transition: color 0.12s;
+}
+.themetoggle:hover {
+	color: var(--grounded);
 }
 
 /* ── 메인 / 스레드 ──────────────────────────────────── */

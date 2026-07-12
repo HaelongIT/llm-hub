@@ -25,7 +25,22 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
-		<html lang="ko" className={`${sans.variable} ${mono.variable}`}>
+		<html lang="ko" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+			<head>
+				{/*
+				 * FOUC 가드. 페인트 전에 동기로 data-theme를 확정한다. 저장된 선택이 있으면 그 값,
+				 * 없으면 시스템 설정(prefers-color-scheme)을 따른다. 정적 문자열이라 사용자 데이터 없음.
+				 * 키는 lib/theme.ts의 THEME_STORAGE_KEY와 같아야 한다.
+				 */}
+				<script
+					dangerouslySetInnerHTML={{
+						__html:
+							"(function(){try{var k='llmhub-theme';var t=localStorage.getItem(k);" +
+							"if(t!=='dark'&&t!=='light'){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}" +
+							'document.documentElement.dataset.theme=t;}catch(e){}})();',
+					}}
+				/>
+			</head>
 			<body>
 				{/*
 				 * 활성 클라이언트 세션에서 토큰을 갱신하는 유일한 경로다 (리뷰 F3). BFF 데이터 경로는 getToken
