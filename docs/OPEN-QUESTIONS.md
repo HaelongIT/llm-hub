@@ -310,6 +310,10 @@
 - **Revisit-trigger:** Keycloak realm에서 "Revoke Refresh Token"을 켜는 첫 순간
 - **Owner:** human
 
+**2026-07-12 사람 확인 — 그대로 유보.** 현재 도달 불가라 코드/설정 수정 안 함. `Revoke Refresh Token`을 켜는
+순간 재검토한다 — 그때 realm의 reuse grace(짧은 재사용 간격)로 코드 없이 동시 갱신 경쟁을 흡수하는 것이 우선,
+single-flight 코드는 비추천(Auth.js JWT 전략상 복잡성만 더함). 리뷰 사이클 종료 기준: 남은 유일한 OPEN.
+
 **상황:** `auth.ts`의 jwt 콜백은 토큰이 만료되면 `refreshAccessToken`을 부른다. 사용자가 만료 직전에 여러 탭·요청을 동시에 내면 둘 다 같은 refresh token으로 갱신을 시도한다.
 
 **발견:** Keycloak은 갱신 시 새 refresh token을 **회전**해 발급한다(curl로 확인). 하지만 `revokeRefreshToken`이 **OFF(realm 기본값)** 이면 옛 refresh token이 만료까지 유효하다. realm-export.json에 이 설정이 없어 기본값이 적용되므로, **현재는 동시 갱신이 둘 다 성공**하고 강제 재로그인이 없다 — 도달 불가.
