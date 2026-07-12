@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { toUiMessages, type CoreMessage } from '@/lib/history';
 import { useSessionStore } from '@/lib/store';
+import { Markdown } from '@/components/Markdown';
 
 /** 근거 한 건. 코어의 Source와 같은 모양이다. */
 type Source = {
@@ -257,7 +258,11 @@ export function Chat() {
 									)}
 								</div>
 								{text ? (
-									<div className="answer">{text}</div>
+									streamingThis ? (
+										<div className="answer">{text}</div>
+									) : (
+										<Markdown text={text} />
+									)
 								) : streamingThis ? (
 									<Thinking label="근거를 종합하는 중" />
 								) : null}

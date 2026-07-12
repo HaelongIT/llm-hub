@@ -793,6 +793,95 @@ blockquote {
 	color: var(--grounded);
 }
 
+/* ── 답변 본문 (마크다운) — 열람실 결의 독서 타이포 ── */
+.prose {
+	font-size: 16px;
+	line-height: 1.7;
+	word-break: break-word;
+}
+.prose > * + * {
+	margin-top: var(--s3);
+}
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+	line-height: 1.4;
+	color: var(--ink);
+}
+.prose h2 {
+	font-size: 18px;
+	font-weight: 600;
+}
+.prose h3 {
+	font-size: 16px;
+	font-weight: 600;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+	font-size: 15px;
+	font-weight: 600;
+}
+.prose ul,
+.prose ol {
+	padding-left: 1.4em;
+}
+.prose ul {
+	list-style: disc;
+}
+.prose ol {
+	list-style: decimal;
+}
+.prose li {
+	margin-top: var(--s1);
+}
+.prose li::marker {
+	color: var(--muted);
+}
+.prose strong {
+	font-weight: 600;
+	color: var(--ink);
+}
+.prose em {
+	font-style: italic;
+}
+.prose code {
+	font-family: var(--mono);
+	font-size: 0.9em;
+	background: color-mix(in srgb, var(--grounded) 10%, var(--surface));
+	border: 1px solid var(--rule);
+	border-radius: 4px;
+	padding: 0.05em 0.35em;
+}
+.prose pre {
+	font-family: var(--mono);
+	font-size: 13px;
+	line-height: 1.55;
+	background: var(--surface);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	padding: var(--s3);
+	overflow-x: auto;
+}
+.prose pre code {
+	background: none;
+	border: none;
+	padding: 0;
+	font-size: inherit;
+}
+.prose blockquote {
+	border-left: 2px solid var(--rule);
+	padding-left: var(--s3);
+	color: var(--muted);
+}
+.prose a {
+	color: var(--grounded);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
 /* 오류 배너 (방향 제시) */
 .banner {
 	display: flex;
