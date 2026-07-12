@@ -25,14 +25,17 @@ function scorePct(score: number, max: number): number {
 	return max > 0 ? Math.round((score / max) * 100) : 0;
 }
 
-/** 증거 슬립 하나. 인용이 길면 접고 "더 보기"로 편다. */
-function Slip({ source, max }: { source: Source; max: number }) {
+/** 증거 슬립 하나. 인용이 길면 접고 "더 보기"로 편다. 순위는 관련도순 위치(카탈로그 카드 번호). */
+function Slip({ source, max, index }: { source: Source; max: number; index: number }) {
 	const [open, setOpen] = useState(false);
 	const long = source.text.length > QUOTE_CLAMP;
 	const shown = long && !open ? `${source.text.slice(0, QUOTE_CLAMP)}…` : source.text;
 	return (
-		<div className="slip">
+		<div className="slip" style={{ '--i': index } as React.CSSProperties}>
 			<div className="slip__head">
+				<span className="slip__rank" aria-hidden="true">
+					{String(index + 1).padStart(2, '0')}
+				</span>
 				<span className="slip__doc" title={source.documentName}>
 					{source.documentName}
 				</span>
@@ -65,8 +68,8 @@ function Evidence({ sources }: { sources: Source[] }) {
 	return (
 		<div className="evidence">
 			<span className="evidence__label">근거 {sources.length} · 관련도순</span>
-			{sources.map((source) => (
-				<Slip key={`${source.documentId}:${source.location}`} source={source} max={max} />
+			{sources.map((source, i) => (
+				<Slip key={`${source.documentId}:${source.location}`} source={source} max={max} index={i} />
 			))}
 		</div>
 	);

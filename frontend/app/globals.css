@@ -318,13 +318,27 @@ blockquote {
 	border-radius: var(--radius);
 	background: var(--surface);
 	padding: var(--s3);
+	/* 근거가 위에서부터 차례로 안착한다 — 관련도순으로 서가에서 뽑히는 느낌. */
 	animation: slip-in 0.24s ease-out both;
+	animation-delay: calc(var(--i, 0) * 40ms);
 }
 .slip__head {
 	display: flex;
 	align-items: center;
 	gap: var(--s2);
 	margin-bottom: var(--s2);
+}
+/* 관련도 순위 = 카탈로그 카드의 분류 번호. 실제 순서를 담으므로 장식이 아니다. */
+.slip__rank {
+	font-family: var(--mono);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted);
+	flex: none;
+	transition: color 0.15s;
+}
+.slip:hover .slip__rank {
+	color: var(--grounded);
 }
 .slip__doc {
 	font-size: 13px;
@@ -348,10 +362,10 @@ blockquote {
 	flex: none;
 }
 .scorebar {
-	width: 52px;
-	height: 5px;
-	border-radius: 3px;
-	background: color-mix(in srgb, var(--grounded) 20%, var(--paper));
+	width: 56px;
+	height: 4px;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--grounded) 18%, var(--paper));
 	overflow: hidden;
 }
 .scorebar__fill {
