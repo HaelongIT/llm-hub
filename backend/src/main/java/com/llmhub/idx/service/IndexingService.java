@@ -84,7 +84,7 @@ public final class IndexingService {
 	}
 
 	public IndexResult index(IndexRequest request) {
-		validator.validate(request.filename(), request.contentType(), request.content().length);
+		validator.validate(request.filename(), request.contentType(), request.content());
 
 		// 문서 본문은 로그에 남기지 않는다 (SEC-3). 식별자와 크기만 남긴다.
 		log.info(
