@@ -27,6 +27,8 @@ services:
   postgres:
     image: postgres:17-alpine
     logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1g}
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -45,6 +47,9 @@ services:
     build:
       context: ./docker/elasticsearch
     logging: *default-logging
+    restart: unless-stopped
+    # -Xmx1g 힙 + Lucene off-heap. 컨테이너 제한이 있으면 JVM이 호스트가 아니라 이 몫 기준으로 잡힌다.
+    mem_limit: ${ES_MEM_LIMIT:-2g}
     environment:
       discovery.type: single-node
       # 운영은 보안을 켠다. 백엔드는 ES_USERNAME/ES_PASSWORD로 인증한다.
@@ -65,6 +70,8 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.0
     logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${KEYCLOAK_MEM_LIMIT:-1g}
     # dev 모드가 아니다. 내장 H2는 운영에서 지원되지 않는다.
     command: ["start", "--import-realm"]
     environment:
@@ -92,6 +99,8 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${LITELLM_MEM_LIMIT:-1g}
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_API_KEY: ${LITELLM_API_KEY}
@@ -108,6 +117,9 @@ services:
     build:
       context: ./backend
     logging: *default-logging
+    restart: unless-stopped
+    # JVM은 MaxRAMPercentage=75(Dockerfile). 컨테이너 제한이 있어야 호스트 75%가 아니라 이 몫의 75%로 잡힌다 (B3).
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
@@ -171,6 +183,8 @@ services:
     build:
       context: ./frontend
     logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${FRONTEND_MEM_LIMIT:-1g}
     environment:
       CORE_BASE_URL: http://backend:8080
       AUTH_SECRET: ${AUTH_SECRET}
