@@ -177,6 +177,9 @@ services:
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       AUTH_TRUST_HOST: "true"
       KEYCLOAK_URL: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}
+      # 서버측 백채널은 내부 서비스명으로 친다. 외부 URL은 이 컨테이너 안에서 자기 자신이라 code→token
+      # 교환·refresh가 도달하지 못한다 (리뷰 B1). 브라우저 리다이렉트(authorization)만 KEYCLOAK_URL(외부)로 간다.
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}

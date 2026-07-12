@@ -17,11 +17,36 @@ import type { TokenSet } from '@/lib/token';
  * 갱신에 실패하면(refresh token도 만료) `session.error`가 선다. 그때는 만료된 베어러를
  * 코어로 보내지 않고 다시 로그인시킨다.
  */
-const keycloak = {
-	issuer: `${process.env.KEYCLOAK_URL}/realms/${process.env.KEYCLOAK_REALM}`,
-	clientId: process.env.KEYCLOAK_CLIENT_ID!,
-	clientSecret: process.env.KEYCLOAK_CLIENT_SECRET!,
-};
+const clientId = process.env.KEYCLOAK_CLIENT_ID!;
+const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET!;
+const realm = process.env.KEYCLOAK_REALM;
+
+// 브라우저가 보는 외부 주소. 토큰의 iss(=KC_HOSTNAME)이자 로그인 리다이렉트(authorization) 주소다.
+const externalIssuer = `${process.env.KEYCLOAK_URL}/realms/${realm}`;
+// 서버측 백채널(code→token 교환·refresh·jwks·userinfo)은 내부 주소로 친다. 운영 컨테이너 안에서 외부
+// URL(예: localhost:8081)은 자기 자신이라 도달하지 못한다 (리뷰 B1). 미설정이면 외부와 같아 dev(호스트
+// 실행)는 지금과 동일하게 동작한다 — 회귀 없음. 운영 compose가 keycloak:8080으로 덮는다.
+const internalBase = process.env.KEYCLOAK_INTERNAL_URL || process.env.KEYCLOAK_URL;
+const internalIssuer = `${internalBase}/realms/${realm}`;
+const splitBackchannel = internalBase !== process.env.KEYCLOAK_URL;
+
+// refresh는 서버측 백채널이므로 내부 issuer로 토큰 엔드포인트를 친다 (token.ts).
+const backchannel = { issuer: internalIssuer, clientId, clientSecret };
+
+// 백채널 분리 시: authorization(브라우저)만 외부, token·userinfo·jwks(서버측)는 내부로 명시한다.
+// 모든 엔드포인트를 명시해 discovery(외부 well-known 서버측 호출, 컨테이너에서 도달 불가)를 건너뛴다.
+// 미분리(dev)면 지금처럼 issuer만 주고 discovery에 맡긴다.
+const keycloakProvider = splitBackchannel
+	? Keycloak({
+			clientId,
+			clientSecret,
+			issuer: externalIssuer,
+			authorization: `${externalIssuer}/protocol/openid-connect/auth`,
+			token: `${internalIssuer}/protocol/openid-connect/token`,
+			userinfo: `${internalIssuer}/protocol/openid-connect/userinfo`,
+			jwks_endpoint: `${internalIssuer}/protocol/openid-connect/certs`,
+		})
+	: Keycloak({ clientId, clientSecret, issuer: externalIssuer });
 
 /**
  * access token에서 앱 역할(USER/ADMIN)만 뽑는다. UI가 "역할" 칩으로 governed retrieval을 드러내는 데
@@ -42,13 +67,7 @@ function appRole(accessToken?: string): 'USER' | 'ADMIN' | undefined {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-	providers: [
-		Keycloak({
-			clientId: keycloak.clientId,
-			clientSecret: keycloak.clientSecret,
-			issuer: keycloak.issuer,
-		}),
-	],
+	providers: [keycloakProvider],
 	callbacks: {
 		async jwt({ token, account }) {
 			// 로그인 직후에만 account가 있다. refresh token과 만료 시각을 여기서 챙기지 않으면
@@ -67,7 +86,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 				return token;
 			}
 
-			const refreshed = await refreshAccessToken(token as unknown as TokenSet, keycloak);
+			const refreshed = await refreshAccessToken(token as unknown as TokenSet, backchannel);
 			return { ...token, ...refreshed };
 		},
 		session({ session, token }) {
