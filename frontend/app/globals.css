@@ -533,6 +533,55 @@ blockquote {
 		opacity: 1;
 	}
 }
+/* ── 입장 연출 (로드 1회, 절제된 정돈) ─────────────── */
+/* 게이트: 마크가 그려지고 태그라인·버튼이 뒤이어 안착 — '여백에 뜬 폼'이 아니라 '입장 지점'. */
+.gate__brand {
+	animation: rise 0.5s ease-out both;
+}
+.gate__brand .mark {
+	animation: mark-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.gate__tagline {
+	animation: rise 0.5s ease-out 0.08s both;
+}
+.gate__msg {
+	animation: rise 0.5s ease-out 0.12s both;
+}
+.gate__btn {
+	animation: rise 0.5s ease-out 0.16s both;
+}
+/* 환영(새 세션): 리드·부제·예시칩이 가볍게 순차 등장. */
+.welcome__lead {
+	animation: rise 0.45s ease-out both;
+}
+.welcome__sub {
+	animation: rise 0.45s ease-out 0.06s both;
+}
+.welcome__chips {
+	animation: rise 0.45s ease-out 0.12s both;
+}
+
+@keyframes rise {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes mark-in {
+	from {
+		opacity: 0;
+		transform: scale(0.55);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.slip {
 		animation: none;
@@ -540,6 +589,16 @@ blockquote {
 	.dots span {
 		animation: none;
 		opacity: 0.7;
+	}
+	.gate__brand,
+	.gate__brand .mark,
+	.gate__tagline,
+	.gate__msg,
+	.gate__btn,
+	.welcome__lead,
+	.welcome__sub,
+	.welcome__chips {
+		animation: none;
 	}
 	* {
 		scroll-behavior: auto !important;
