@@ -2,6 +2,10 @@
 
 도메인 중립 RAG 챗 런타임. 회사별 설치형 배포를 전제로, 인증·권한·감사가 내장된 문서 검색 기반 채팅 시스템.
 
+> **상태: v0 완료.** 색인→로그인→질문→근거 검색→스트리밍 응답→감사가 end-to-end로 동작한다. 코드리뷰 2회 + 실검증(뮤테이션 테스트·살아 있는 스택·Playwright E2E)을 거쳤다.
+>
+> **프로젝트를 처음 본다면 → [docs/syj/onboarding.md](docs/syj/onboarding.md)** (무엇이고 왜 이렇게 만들었는지 설명하는 팀 온보딩 문서).
+
 ## 문서
 
 작업 전 반드시 읽는다.
@@ -57,7 +61,7 @@ cd frontend && npm install && npm run dev         # BFF + UI (:3000)
 
 ```bash
 ollama pull bge-m3      # 임베딩 (1024차원 — .env의 EMBEDDING_DIM과 일치해야 한다)
-ollama pull llama3.1    # 채팅
+ollama pull qwen3:8b    # 채팅 (.env의 LITELLM_CHAT_BACKEND 기본값)
 ```
 
 모델을 바꾸면 `.env`의 `EMBEDDING_MODEL`·`EMBEDDING_DIM`과 `config.yaml`을 함께 고친다. 임베딩 모델이 바뀌면 재색인이 필요하고, 차원이 바뀌면 새 ES 인덱스가 필요하다(S8-4, E9).
@@ -81,9 +85,24 @@ docker compose -f docker-compose.yml --profile app up -d --build
 
 Keycloak은 브라우저가 로그인 리다이렉트로 직접 접근해야 하므로 노출한다. 코어·Elasticsearch·PostgreSQL·LiteLLM은 내부 네트워크에서만 보인다(SEC-1). 리버스 프록시 뒤에 둔다면 두 포트를 프록시가 흡수하고 compose의 `ports`를 지운다.
 
+### 운영 Keycloak 프로비저닝
+
+realm·역할·클라이언트·audience 매퍼는 `realm-export.json`이 `--import-realm`으로 만든다. 배포별 값(프론트 클라이언트 시크릿·redirect)만 저장소에 커밋하지 않으므로(SEC-3), 스택을 처음 띄운 뒤 한 번 실행한다. 상세 런북은 [docker/keycloak/README.md](docker/keycloak/README.md).
+
+```bash
+docker compose -f docker-compose.yml up -d
+./docker/keycloak/bootstrap-prod.sh    # 시크릿·redirect 설정 + audience 매퍼 존재 assert
+```
+
+`KEYCLOAK_INTERNAL_URL`(기본 `http://keycloak:8080`)은 프론트 컨테이너의 **서버측 백채널**(code→token 교환·토큰 갱신)이 쓰는 내부 주소다. 브라우저 리다이렉트는 외부 `KEYCLOAK_HOSTNAME`으로 가지만, 컨테이너 안에서 외부 URL은 자기 자신이라 도달하지 못한다. dev는 프론트가 호스트에서 돌아 이 값이 외부와 같다.
+
+### 자원 상한
+
+각 서비스에 `*_MEM_LIMIT`(`.env`, 기본 합 ~8GB = 16GB 호스트 가정)로 메모리 상한을 둔다. cgroup 제한이 있어야 JVM(backend·keycloak)이 호스트 전체가 아니라 컨테이너 몫 기준으로 힙을 잡는다. 호스트 사양에 맞게 조정한다. 모든 서비스는 `restart: unless-stopped`다.
+
 ### 헬스체크와 기동 순서 (REL-5)
 
-`frontend`는 `backend`가 healthy가 된 뒤에 뜬다. 코어가 응답하기 전에 BFF가 올라오면 첫 사용자가 502를 본다.
+`frontend`는 `backend`와 `keycloak`이 healthy가 된 뒤에 뜬다. 코어가 응답하기 전에 BFF가 올라오면 첫 사용자가 502를 보고, Keycloak이 준비되기 전이면 첫 로그인이 실패한다. Keycloak은 관리 포트(9000)의 `/health/ready`로 healthcheck하는데, 26 이미지엔 curl이 없어 `/bin/sh`(bash)의 `/dev/tcp`로 확인한다.
 
 코어의 헬스 엔드포인트는 **관리 포트(컨테이너 내부 9090)**에 있다. 애플리케이션 포트(8080)에 두면 "모든 API는 인증 필요"(SEC-1)가 깨지기 때문이다. 관리 포트는 호스트에 publish하지 않으므로 컨테이너 밖에서 보이지 않고, 8080의 API 표면은 여전히 전부 인증을 요구한다.
 
