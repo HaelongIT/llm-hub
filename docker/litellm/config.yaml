@@ -2,20 +2,35 @@
 # 모델별 라우팅·페일오버는 게이트웨이 책임이고, 코어는 모델명만 전달한다 (S8-1, E7).
 # 코어에 특정 모델을 하드코딩하지 않으므로, 모델 교체는 이 파일과 .env 에서 끝난다.
 #
-# 아래 model_name 은 .env 의 CHAT_MODEL / EMBEDDING_MODEL 과 일치해야 한다.
-# 뒷단 실제 모델은 배포마다 다르므로 환경변수로 뺀다(OLLAMA_CHAT_MODEL 등).
-# 임베딩 모델을 바꾸면 재색인이 필요하고, 차원이 바뀌면 새 ES 인덱스가 필요하다 (S8-4, E9).
+# 채팅과 임베딩은 각자 엔드포인트·키를 가진다. 둘을 따로 보낼 수 있어야 한다 —
+# 예: 채팅은 사내 DGX Spark의 게이트웨이(OpenAI 호환), 임베딩은 호스트 Ollama.
+# 뒷단 주소·키·모델은 배포마다 다르므로 전부 환경변수다 (REL-4).
+#
+# 자동 페일오버(fallbacks)를 넣지 않는다. v0는 깨끗한 실패다 (S8-3).
 
 model_list:
-  - model_name: placeholder-chat-model
+  # ── 채팅 ──
+  # 논리 이름을 고정한다. 뒷단이 Ollama든 원격 게이트웨이든 코어는 `chat`만 알면 된다.
+  # 채팅 모델명은 어디에도 저장되지 않으므로 이름을 고정해도 안전하다.
+  - model_name: chat
     litellm_params:
       model: os.environ/LITELLM_CHAT_BACKEND
-      api_base: os.environ/OLLAMA_BASE_URL
+      api_base: os.environ/LITELLM_CHAT_API_BASE
+      api_key: os.environ/LITELLM_CHAT_API_KEY
 
-  - model_name: placeholder-embedding-model
+  # ── 임베딩 ──
+  # 채팅과 달리 논리 이름이 **실제 모델을 가리켜야 한다.** 이 이름이 모든 조각의
+  # 메타데이터에 박히고, 재색인 stale 판정이 그 값을 현재 설정과 비교하기 때문이다
+  # (S8-4, E9 — IndexingService.staleDocuments()).
+  #
+  # 뒷단 모델을 바꾸면서 이 이름을 그대로 두면 stale 판정이 아무것도 못 잡고,
+  # 색인된 벡터와 질문 벡터가 다른 공간에 있게 되어 **에러 없이 검색이 무너진다.**
+  # 모델을 바꿀 때는 model_name 과 .env 의 EMBEDDING_MODEL 을 함께 바꾼다 (OQ-016).
+  - model_name: bge-m3
     litellm_params:
       model: os.environ/LITELLM_EMBEDDING_BACKEND
-      api_base: os.environ/OLLAMA_BASE_URL
+      api_base: os.environ/LITELLM_EMBEDDING_API_BASE
+      api_key: os.environ/LITELLM_EMBEDDING_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_API_KEY

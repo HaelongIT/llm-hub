@@ -114,10 +114,15 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_API_KEY: ${LITELLM_API_KEY}
-      # 뒷단 실제 모델. 배포마다 다르므로 파일에 박지 않는다 (E7).
+      # 뒷단 실제 모델·주소·키. 배포마다 다르므로 파일에 박지 않는다 (E7, REL-4).
+      # 채팅과 임베딩이 각자 엔드포인트를 가진다 — 채팅만 사내 DGX로 보내고 임베딩은
+      # 호스트 Ollama에 남기는 식의 조합이 가능해야 한다. 기본값은 지금까지의 동작(둘 다 Ollama)이다.
       LITELLM_CHAT_BACKEND: ${LITELLM_CHAT_BACKEND:-ollama/qwen3:8b}
+      LITELLM_CHAT_API_BASE: ${LITELLM_CHAT_API_BASE:-http://host.docker.internal:11434}
+      LITELLM_CHAT_API_KEY: ${LITELLM_CHAT_API_KEY:-not-used-for-ollama}
       LITELLM_EMBEDDING_BACKEND: ${LITELLM_EMBEDDING_BACKEND:-ollama/bge-m3}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LITELLM_EMBEDDING_API_BASE: ${LITELLM_EMBEDDING_API_BASE:-http://host.docker.internal:11434}
+      LITELLM_EMBEDDING_API_KEY: ${LITELLM_EMBEDDING_API_KEY:-not-used-for-ollama}
     volumes:
       - ./docker/litellm/config.yaml:/app/config.yaml:ro
     extra_hosts:

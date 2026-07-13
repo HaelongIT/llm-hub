@@ -562,6 +562,68 @@ curl -X POST "http://localhost:8080/api/index/reindex?docKey=규정-2026" \
 
 > 이건 "전체 문서 목록" API가 아니다. 재색인이 필요한 문서만 나온다. 전체 목록 조회 API는 v0에 없다.
 
+## 3-6-B. LLM 백엔드 바꾸기 (사내 원격 서버로 보내기)
+
+코어는 **게이트웨이(LiteLLM) 하나만** 보고, 모델의 **논리 이름**만 전달한다. 그 이름이 실제로 어느 서버·어느 모델로 가는지는 게이트웨이가 정한다(S8-1, E7). 그래서 **모델 교체에 코드를 고칠 일이 없다.**
+
+```
+코어 → LiteLLM 컨테이너 ─┬→ 채팅   (기본: 호스트 Ollama / 또는 사내 원격 서버)
+                          └→ 임베딩 (기본: 호스트 Ollama)
+```
+
+### 채팅을 사내 원격 서버로 (예: DGX Spark의 LiteLLM)
+
+원격이 **OpenAI 호환 API**(`/v1/chat/completions` + Bearer 키)이면 `.env` **세 줄**이면 된다.
+
+```bash
+LITELLM_CHAT_BACKEND=openai/<원격이 노출하는 모델명>
+LITELLM_CHAT_API_BASE=http://<원격-IP>:4000/v1
+LITELLM_CHAT_API_KEY=<원격 Bearer 키>
+```
+
+```bash
+docker compose up -d --force-recreate litellm    # 게이트웨이만 재기동하면 된다
+```
+
+확인 — 코어를 거치지 않고 게이트웨이를 직접 친다:
+
+```bash
+curl -s http://localhost:4000/v1/chat/completions -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"chat","messages":[{"role":"user","content":"hello"}]}'
+```
+
+> **호스트명 대신 IP를 권한다.** LiteLLM은 컨테이너 안에서 돌기 때문에 사내 DNS 호스트명을 못 풀 수 있다. 안 되면 `docker-compose.yml`의 litellm `extra_hosts`에 추가한다.
+>
+> **자동 페일오버는 넣지 않는다(S8-3).** 원격이 죽으면 로컬 Ollama로 넘어가지 않고 **깨끗하게 실패**한다. 어느 모델이 답했는지 모르는 상태가 더 위험하다는 결정이다.
+
+### 임베딩을 바꾸는 것은 완전히 다른 일이다
+
+**⚠ `EMBEDDING_MODEL` 이름을 반드시 함께 바꿔야 한다.** 이 이름이 **모든 조각의 메타데이터에 박히고**, 재색인 대상 판정(`GET /api/index/stale`)이 이 이름으로 이루어지기 때문이다.
+
+뒷단만 바꾸고 이름을 그대로 두면 — **아무 에러도 나지 않고, stale로도 안 잡히고, 검색 품질만 조용히 무너진다.** 색인된 벡터는 옛 모델이 만든 것이고 질문 벡터는 새 모델이 만든 것이라 서로 다른 공간에 있게 된다(S8-4).
+
+세 곳을 **함께** 바꾼다:
+
+| 파일 | 바꿀 것 |
+|---|---|
+| `.env` | `EMBEDDING_MODEL=<새 모델명>` · `LITELLM_EMBEDDING_BACKEND` · `LITELLM_EMBEDDING_API_BASE` · `LITELLM_EMBEDDING_API_KEY` |
+| `docker/litellm/config.yaml` | 임베딩 항목의 `model_name`을 새 모델명과 **똑같이** |
+| `.env` | 차원이 다르면 `EMBEDDING_DIM`도 |
+
+그리고 **전체 재색인**한다:
+
+```bash
+curl -s http://localhost:8080/api/index/stale -H "Authorization: Bearer $TOKEN"
+# → 이름을 제대로 바꿨다면 모든 문서가 reason=MODEL 로 잡힌다.
+#   하나도 안 잡히면 이름을 안 바꾼 것이다 — 그대로 두면 검색이 조용히 깨진다.
+
+# 나온 docKey 마다
+curl -X POST "http://localhost:8080/api/index/reindex?docKey=<docKey>" -H "Authorization: Bearer $TOKEN"
+```
+
+> **차원이 바뀌면 재색인으로도 안 된다.** ES는 인덱스 생성 시 벡터 차원을 고정하므로 **새 인덱스가 필요하다**(`ES_INDEX_NAME`을 바꾸고 전부 다시 올린다). 색인을 시도하면 409(`EmbeddingDimensionMismatchException`)로 막힌다 — 조용히 깨지지는 않는다.
+
 ## 3-7. 질문하기
 
 브라우저(http://localhost:3000)에서 로그인하고 질문을 입력하면 된다.
