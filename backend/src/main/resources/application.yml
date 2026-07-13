@@ -28,7 +28,9 @@ spring:
       api-key: ${LITELLM_API_KEY:changeme}
       chat:
         options:
-          model: ${CHAT_MODEL:placeholder-chat-model}
+          # 게이트웨이의 논리 모델명(docker/litellm/config.yaml 의 model_name)이다.
+          # 뒷단이 무엇인지는 코어가 알지 않는다 (E7).
+          model: ${CHAT_MODEL:chat}
 
   security:
     oauth2:
@@ -110,7 +112,10 @@ llmhub:
     # 바꾸면 재색인이 필요하고, 차원을 바꾸면 새 인덱스가 필요하다 (E9).
     base-url: ${LITELLM_BASE_URL:http://localhost:4000}
     api-key: ${LITELLM_API_KEY:changeme}
-    model: ${EMBEDDING_MODEL:placeholder-embedding-model}
+    # 이 값이 모든 조각의 메타데이터에 기록되고, staleDocuments() 가 이것으로 재색인 대상을
+    # 판정한다. 그러므로 게이트웨이 뒷단의 **실제 모델을 가리키는 이름**이어야 한다.
+    # 뒷단만 바꾸고 이 이름을 그대로 두면 stale 판정이 못 잡아 검색이 조용히 깨진다 (OQ-016).
+    model: ${EMBEDDING_MODEL:bge-m3}
     dimensions: ${EMBEDDING_DIM:1024}
     # 게이트웨이가 연결만 받고 응답하지 않으면 무한히 매달린다 (REL-1).
     # 임베딩은 조각 수에 비례해 오래 걸리므로 read는 넉넉해야 한다.
