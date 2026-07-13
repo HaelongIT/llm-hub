@@ -150,6 +150,111 @@ cd frontend && npm install && npm run dev
 
 **아직 질문해도 답이 안 나온다.** 검색할 문서가 하나도 없기 때문이다. → **3장으로 간다.**
 
+---
+
+# 2-B. 내리기 · 재시작 · 초기화
+
+**띄우는 것보다 내리는 게 헷갈린다.** 명령마다 무엇이 지워지고 무엇이 남는지가 다르기 때문이다. 아래 표를 먼저 보자.
+
+| 명령 | 컨테이너 | PostgreSQL·Elasticsearch | 업로드 원본 | **dev Keycloak (계정·시크릿)** |
+|---|---|---|---|---|
+| `docker compose stop` | 정지(유지) | 유지 | 유지 | **유지** |
+| `docker compose down` | **삭제** | 유지 | 유지 | **날아간다** |
+| `docker compose down -v` | **삭제** | 유지 (`-v`는 효과 없다) | 유지 | **날아간다** |
+| `down` + `rm -rf ./data backend/data` | **삭제** | **삭제** | **삭제** | **날아간다** |
+
+이 비대칭에는 이유가 있다.
+
+- **PostgreSQL·Elasticsearch 데이터는 호스트의 `./data/` 폴더**에 바인드마운트로 저장된다(`${DATA_ROOT:-./data}`). 컨테이너를 지워도 이 폴더는 그대로 남는다. 그래서 **`docker compose down -v`를 해도 데이터가 안 지워진다** — `-v`는 named volume을 지우는 옵션인데 이 프로젝트는 named volume을 하나도 쓰지 않는다. "`-v` 붙였으니 초기화됐겠지"라고 생각하면 틀린다.
+- **반대로 개발용 Keycloak은 컨테이너 안에만 데이터가 있다**(`KC_DB: dev-file` — 내장 H2). 볼륨이 없으므로 **컨테이너를 지우는 순간 realm·계정·클라이언트 시크릿이 함께 사라진다.**
+- **업로드 원본의 위치는 개발과 운영이 다르다.** `FILE_STORAGE_ROOT`가 상대경로(`./data/documents`)이고 개발에서는 `backend/` 디렉터리에서 `bootRun`을 돌리므로, 원본이 **`backend/data/documents`** 에 쌓인다. 운영(컨테이너)에서는 `./data/documents`다. 개발 데이터를 초기화하려면 **두 곳을 다 지워야 한다.**
+
+## 일상적으로 껐다 켜기 (권장)
+
+작업을 마칠 때 이렇게 한다. **아무것도 잃지 않는다.**
+
+```bash
+# 1) 코어와 프론트: 각 터미널에서 Ctrl+C
+# 2) 인프라: 정지만 한다 (삭제하지 않는다)
+docker compose stop
+```
+
+다음 날 다시 시작할 때:
+
+```bash
+docker compose start                      # 인프라 재시작 (bootstrap 다시 안 해도 된다)
+# 터미널 A
+set -a; . ./.env; set +a && cd backend && ./gradlew --no-daemon bootRun
+# 터미널 B
+set -a; . ./.env; set +a && cd frontend && npm run dev
+```
+
+`docker compose stop`은 컨테이너를 지우지 않으므로 **Keycloak 계정과 시크릿이 살아 있다.** `bootstrap-dev.sh`를 다시 돌릴 필요가 없다.
+
+## 컨테이너까지 완전히 내리기
+
+```bash
+docker compose down
+```
+
+컨테이너가 삭제된다. `./data/`의 DB·검색 인덱스·업로드 원본은 **그대로 남는다.**
+
+> **⚠ 다시 띄우면 `bootstrap-dev.sh`를 반드시 다시 돌려야 한다.** 개발용 Keycloak의 H2가 컨테이너와 함께 사라져서 `dev-user`·`dev-admin`과 클라이언트 시크릿이 없어졌기 때문이다. 이걸 잊으면 **로그인 후 바로 로그아웃되는 증상**으로 나타난다.
+>
+> ```bash
+> docker compose up -d
+> ./docker/keycloak/bootstrap-dev.sh    # 잊지 말 것
+> ```
+
+## 데이터까지 전부 지우고 처음부터 (초기화)
+
+색인이 꼬였거나 임베딩 모델을 바꿔서 깨끗하게 다시 시작하고 싶을 때.
+
+```bash
+docker compose down
+rm -rf ./data                  # PostgreSQL · Elasticsearch
+rm -rf ./backend/data          # 업로드 원본 (개발에서는 여기에 쌓인다 — 위 설명 참고)
+docker compose up -d
+./docker/keycloak/bootstrap-dev.sh
+```
+
+> **⚠ 되돌릴 수 없다.** `./data`를 지우면 **감사 로그와 대화 이력도 함께 사라진다**(PostgreSQL에 있다). 원본 파일까지 지우면 재색인(`/api/index/reindex`)도 불가능해진다 — 문서를 처음부터 다시 올려야 한다.
+>
+> 필요하면 먼저 백업한다: `cp -r ./data ./data-backup-$(date +%Y%m%d)`
+>
+> **원본만 남기고 지우면 안 되는 이유:** `./data`(PostgreSQL)만 지우고 `backend/data`를 남기면, 문서 레코드는 없는데 원본 파일만 남은 고아 상태가 된다. 동작에 문제는 없지만 디스크를 계속 먹는다. 초기화할 거면 둘 다 지운다.
+
+## 프로세스가 안 죽었을 때
+
+코어를 Ctrl+C로 껐다고 생각했는데 포트가 잡혀 있는 경우가 있다. 다시 `bootRun`하면 이렇게 뜬다:
+
+```
+APPLICATION FAILED TO START
+Web server failed to start. Port 8080 was already in use.
+```
+
+살아 있는 프로세스를 찾아서 죽인다.
+
+```bash
+# macOS / Linux
+lsof -i :8080          # 또는 :3000
+kill <PID>
+
+# Windows (Git Bash / PowerShell)
+netstat -ano | grep :8080
+taskkill //PID <PID> //F
+```
+
+## 운영 스택 내리기
+
+```bash
+docker compose -f docker-compose.yml --profile app down
+```
+
+`-f docker-compose.yml`과 `--profile app`을 **띄울 때와 똑같이** 붙인다. 운영 Keycloak은 dev와 달리 PostgreSQL에 데이터를 저장하므로(`./data/postgres`), 컨테이너를 내려도 realm·사용자가 살아남는다. `bootstrap-prod.sh`를 다시 돌릴 필요는 없다.
+
+---
+
 ## 셋업이 안 될 때
 
 | 증상 | 원인과 해결 |
@@ -157,7 +262,8 @@ cd frontend && npm install && npm run dev
 | `./gradlew: permission denied` | 실행 비트 문제. 최신 `main`을 받으면 해결됐다. 그래도 나면 `chmod +x backend/gradlew` |
 | `bad interpreter: ^M` | 스크립트 줄바꿈이 CRLF다. `git config core.autocrlf false` 후 다시 클론 |
 | 코어가 `Connection refused`로 죽음 | 인프라가 아직 안 떴다. `docker compose ps`로 전부 `healthy` 확인 후 재시도 |
-| 로그인 후 바로 로그아웃됨 | `.env`의 `KEYCLOAK_CLIENT_SECRET`과 Keycloak에 등록된 값이 다르다. `./docker/keycloak/bootstrap-dev.sh` 재실행 |
+| 로그인 후 바로 로그아웃됨 | `.env`의 `KEYCLOAK_CLIENT_SECRET`과 Keycloak에 등록된 값이 다르다. **`docker compose down`을 한 뒤라면 거의 확실히 이것이다**(2-B 참고). `./docker/keycloak/bootstrap-dev.sh` 재실행 |
+| `Port 8080 was already in use` | 이전 코어가 안 죽었다. 2-B의 "프로세스가 안 죽었을 때" 참고 |
 | 질문하면 `index_not_found` 오류 | 색인된 문서가 0건이다. 정상이다 — 3장대로 문서를 올린다 |
 | Elasticsearch가 계속 죽음 | 메모리 부족. Docker Desktop 메모리를 올리거나 `.env`의 `ES_MEM_LIMIT`를 조정 |
 | 임베딩 단계에서 오류 | Ollama가 안 떠 있거나 모델을 안 받았다. `ollama list`로 확인 |
