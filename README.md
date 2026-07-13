@@ -445,22 +445,14 @@ RUN bin/elasticsearch-plugin install --batch analysis-nori
 
 **Ollama는 아예 스택 밖에 있다.** compose에 서비스로 없고, 호스트에서 이미 돌고 있는 것을 `host.docker.internal:11434`로 부른다.
 
+**LiteLLM도 그저 이렇게 가져다 쓰는 부품 하나다.** 코어는 **모델명만** 던지고 뒤에 Ollama가 있는지 OpenAI가 있는지 모른다 — LiteLLM이 하는 일은 채팅 호출과 임베딩 호출 둘뿐이고, 덕분에 **모델 교체가 `config.yaml`과 `.env`에서 끝난다**(S8-1, E7). 걷어내고 OpenAI에 직결해도 코어는 거의 그대로다(`LITELLM_BASE_URL`만 바꾸면 된다). 색인·검색·권한·감사는 전부 코어의 몫이다.
+
 ## 갈래 2 — 라이브러리로 링크 (빌드 도구가 받아온다)
 
 - **코어(Gradle):** Spring Boot WebFlux · Spring Security · Spring AI · Flyway · Tika · hwplib · Elasticsearch 자바 클라이언트
 - **프론트(npm):** Next.js · React · next-auth · Vercel AI SDK · zustand — **런타임 의존성이 7개뿐이다**
 
 선언만 하고 코드는 만지지 않는다.
-
-## LiteLLM은 무엇이고, 무엇이 아닌가
-
-자주 오해가 생기는 지점이라 명시한다. **LiteLLM은 이 프로젝트의 경쟁 상대가 아니라 부품 하나다.**
-
-LiteLLM이 이 스택에서 하는 일은 **채팅 모델 호출과 임베딩 호출, 딱 둘**이다. 코어는 `placeholder-chat-model` 같은 **모델명만** 던지고, 뒤에 Ollama가 있는지 OpenAI가 있는지 모른다. 덕분에 **모델 교체가 `config.yaml`과 `.env`에서 끝난다**(S8-1, E7).
-
-반대로 LiteLLM이 해주지 않는 것이 이 프로젝트의 본체다 — 문서 색인, 하이브리드 검색, **역할에 따른 문서 단위 접근 통제**, 서버 검색 결과에서 생성하는 근거(`sources`), 세션·이력, 독립 수명주기의 감사 로그. LiteLLM에도 인증이 있지만 그건 *"이 API 키가 이 모델을 호출해도 되는가"*이고, 이 시스템이 강제하는 건 *"이 사람이 이 문서를 볼 수 있는가"*다. **층이 다르다.**
-
-부품이라는 것은 실제로 증명된다 — LiteLLM을 걷어내고 OpenAI에 직결해도 코어는 거의 그대로다. Spring AI가 OpenAI 호환 규격을 쓰므로 `LITELLM_BASE_URL`만 바꾸면 된다.
 
 ## 오히려 직접 만든 것
 
