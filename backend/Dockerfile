@@ -8,6 +8,8 @@ WORKDIR /workspace
 
 # 래퍼와 빌드 스크립트를 먼저 복사해 의존성 해석을 캐시한다.
 COPY gradlew ./
+# 체크아웃 모드에 의존하지 않는다. 인덱스 모드가 다시 644로 회귀해도 빌드는 성립한다.
+RUN chmod +x gradlew
 COPY gradle ./gradle
 COPY build.gradle.kts settings.gradle.kts ./
 RUN ./gradlew --no-daemon dependencies --configuration runtimeClasspath > /dev/null 2>&1 || true

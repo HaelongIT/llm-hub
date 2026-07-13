@@ -488,3 +488,12 @@ fail-closed로 401**(보안 구멍 아님, 자기 DoS).
 - **로그인 없이 UI를 시각 검증하는 법 — 실페이지에 DOM 주입.** `browser_evaluate`로 게이트 페이지(실 globals.css + next/font가 이미 로드된 상태)의 `document.body.innerHTML`을 표본 셸(슬립·마크다운 답변 등)로 갈아끼우고 스크린샷. 폰트 변수(`--font-sans`/`--font-mono`)가 `<html>`에 있어 실폰트로 보인다. 백엔드·인증 없이 라이트/다크·모바일을 다 확인. React 배선은 tsc+build+단위테스트가 보증하므로 역할 분담이 깔끔하다.
 - **자체 최소 마크다운 파서(의존성 0, §8 회피).** `lib/markdown.ts` 순수 파서 → 노드 트리, `Markdown.tsx`가 React 엘리먼트로 렌더(HTML 주입 없음). 안전장치 둘: href는 `^https?://`만 허용(뮤테이션으로 검증 — 새니타이즈 무력화 시 javascript: 테스트 red), 기울임은 `*`만 지원하고 `_`는 제외(snake_case 오인 방지). 스트리밍 중엔 평문(`white-space:pre-wrap`), **완료된 답변만** 마크다운 렌더(미완성 구문 깜빡임 방지).
 - **훅 빌드 중엔 프론트 파일을 건드리지 않는다.** 커밋 훅이 워킹트리로 `next build`를 돌리므로, 백그라운드 커밋이 도는 동안 다음 커밋용 파일을 수정하면 빌드가 그 중간 상태를 읽는다. 커밋은 백그라운드로 돌리되 완료 알림을 받고 다음 파일 작업을 시작했다(백엔드 때와 같은 규율).
+
+## [2026-07-13] 리포 이식성 — 실행 비트가 Windows에서 조용히 유실된다
+mac에서 클론해 `./gradlew`를 돌리려다 `permission denied`. 원인은 로컬이 아니라 리포였다.
+- **Windows는 `core.filemode=false`라 git이 실행 비트를 추적하지 않는다.** 그래서 최초 커밋 때 스크립트가 인덱스에 `100644`로 굳고, Windows에선 파일 모드 개념이 없어 **아무 증상이 없다.** POSIX 클론에서만 터진다. 이 리포에선 shebang 추적 파일 4개 중 `backend/gradlew`·`.githooks/pre-commit` 둘이 644였다(`docker/keycloak/bootstrap-*.sh`는 755로 정상 — 즉 우연에 달린 문제다).
+- **`chmod +x`는 filemode=false 하에서 git이 무시한다.** 워킹트리만 바뀌고 인덱스는 그대로다. 인덱스 모드를 직접 쓰는 `git update-index --chmod=+x <path>`만 통한다. 결과는 blob 해시 불변 + `mode change 100644 => 100755`.
+- **더 위험한 쪽은 gradlew가 아니라 훅이다.** POSIX에서 git은 **실행 비트 없는 훅을 에러 없이 건너뛴다.** `core.hooksPath .githooks`를 설정해도 커밋은 성공하고 훅만 안 돈다 → SEC-3(비밀정보 차단)·D-4(테스트 무력화 토큰)·D-5(전체 테스트)·F(문서 잠금) 강제가 **조용히** 전부 꺼진다. gradlew는 에러라도 나서 사람이 알아채지만 이건 알아챌 신호가 없다.
+- **gitattributes로는 실행 비트를 설정할 수 없다.** 줄바꿈과 실행 비트는 별개 문제다. 둘 다 필요하다.
+- **`core.autocrlf=true` + 루트 `.gitattributes` 부재 = 워킹트리 CRLF.** blob은 LF지만(autocrlf가 커밋 시 되돌린다) Windows 워킹트리의 훅·`*.sh`는 실제로 CRLF다(126줄/151줄 실측). Git Bash가 참아줘서 지금은 도는 것뿐 — POSIX에 CRLF가 새어 나가면 `bad interpreter: ^M`이다. `*.sh text eol=lf` + `.githooks/* text eol=lf`로 고정했다. **blob이 이미 LF라 diff가 생기지 않고 `git add --renormalize .`가 no-op이다** — 유령 수정 걱정 없이 넣을 수 있다.
+- **Dockerfile은 체크아웃 모드를 상속한다.** `COPY gradlew ./`는 빌드 컨텍스트의 모드를 그대로 옮기므로 644 체크아웃에선 `RUN ./gradlew`가 죽는다. Windows에서 안 터진 건 Docker Desktop이 NTFS 파일에 실행 비트를 붙여줬기 때문이지 리포가 올발라서가 아니다. `RUN chmod +x gradlew` 한 줄로 빌드를 체크아웃 모드에서 독립시켰다(빌드 스테이지라 최종 이미지 무영향).
