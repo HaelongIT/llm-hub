@@ -1,0 +1,16 @@
+{
+  "mappings": {
+    "properties": {
+      "chunk_text":      { "type": "text", "analyzer": "nori" },
+      "embedding":       { "type": "dense_vector", "dims": 1024, "index": true, "similarity": "cosine" },
+      "document_id":     { "type": "keyword" },
+      "document_name":   { "type": "keyword" },
+      "location":        { "type": "keyword" },
+      "access_tags":     { "type": "keyword" },
+      "indexed_at":      { "type": "date" },
+      "embedding_model": { "type": "keyword" },
+      "embedding_dim":   { "type": "integer" },
+      "indexing_run_id": { "type": "keyword" }
+    }
+  }
+}
