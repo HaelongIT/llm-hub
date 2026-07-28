@@ -1,0 +1,232 @@
+# 운영 기준 스택. 회사별 설치형 배포와 동일한 산출물이다 (S26/S27, REL-5).
+#
+#   운영:  docker compose -f docker-compose.yml up -d
+#   개발:  docker compose up -d          (docker-compose.override.yml이 자동으로 얹힌다)
+#
+# 운영에서 `-f docker-compose.yml`을 명시하는 이유: override 파일이 저장소에 함께 있으면
+# `docker compose up`이 그것을 조용히 얹어 보안을 완화한다.
+#
+# 외부에 노출되는 포트는 둘뿐이다 (SEC-1):
+#   frontend  — 사용자가 쓰는 유일한 진입점
+#   keycloak  — 브라우저가 OIDC 리다이렉트로 직접 접근해야 한다
+# 코어·Elasticsearch·PostgreSQL·LiteLLM은 내부 네트워크에서만 보인다.
+#
+# 리버스 프록시 뒤에 둔다면 두 포트를 프록시가 흡수하고 여기서는 publish를 지운다.
+
+name: llmhub
+
+# 로그 회전. Docker 기본 json-file 드라이버는 크기 제한이 없어 로그가 무한히 쌓인다 → 호스트 디스크
+# 소진 → PostgreSQL WAL 실패·ES read-only 전환으로 스택 전체가 정지한다 (R-7). 모든 서비스에 건다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1g}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+      # Keycloak용 데이터베이스를 만든다. 최초 기동 때 한 번만 실행된다.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    build:
+      context: ./docker/elasticsearch
+    logging: *default-logging
+    restart: unless-stopped
+    # -Xmx1g 힙 + Lucene off-heap. 컨테이너 제한이 있으면 JVM이 호스트가 아니라 이 몫 기준으로 잡힌다.
+    mem_limit: ${ES_MEM_LIMIT:-2g}
+    environment:
+      discovery.type: single-node
+      # 운영은 보안을 켠다. 백엔드는 ES_USERNAME/ES_PASSWORD로 인증한다.
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      # 내부 네트워크 전용이므로 TLS를 켜지 않는다. 외부에 노출한다면 반드시 켜야 한다.
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+    volumes:
+      - ${DATA_ROOT:-./data}/elasticsearch:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -sf -u elastic:${ES_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${KEYCLOAK_MEM_LIMIT:-1g}
+    # dev 모드가 아니다. 내장 H2는 운영에서 지원되지 않는다.
+    command: ["start", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}
+      # 프론트엔드가 리버스 프록시 뒤에 있다면 HTTPS 종료를 그쪽에서 한다.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    # 브라우저가 로그인 리다이렉트로 직접 접근한다. 내부망에만 두면 로그인이 불가능하다.
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      # KC 26 이미지엔 curl/wget이 없다. /bin/sh가 bash라 관리 포트(9000)의 /health/ready를 /dev/tcp로 친다
+      # (KC_HEALTH_ENABLED=true). 200 OK면 준비 완료. 이게 없으면 frontend가 KC 기동 전에 떠 초기 로그인이 실패한다 (L-9).
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${LITELLM_MEM_LIMIT:-1g}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      # 뒷단 실제 모델·주소·키. 배포마다 다르므로 파일에 박지 않는다 (E7, REL-4).
+      # 채팅과 임베딩이 각자 엔드포인트를 가진다 — 채팅만 사내 DGX로 보내고 임베딩은
+      # 호스트 Ollama에 남기는 식의 조합이 가능해야 한다. 기본값은 지금까지의 동작(둘 다 Ollama)이다.
+      LITELLM_CHAT_BACKEND: ${LITELLM_CHAT_BACKEND:-ollama/qwen3:8b}
+      LITELLM_CHAT_API_BASE: ${LITELLM_CHAT_API_BASE:-http://host.docker.internal:11434}
+      LITELLM_CHAT_API_KEY: ${LITELLM_CHAT_API_KEY:-not-used-for-ollama}
+      LITELLM_EMBEDDING_BACKEND: ${LITELLM_EMBEDDING_BACKEND:-ollama/bge-m3}
+      LITELLM_EMBEDDING_API_BASE: ${LITELLM_EMBEDDING_API_BASE:-http://host.docker.internal:11434}
+      LITELLM_EMBEDDING_API_KEY: ${LITELLM_EMBEDDING_API_KEY:-not-used-for-ollama}
+    volumes:
+      - ./docker/litellm/config.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  backend:
+    build:
+      context: ./backend
+    logging: *default-logging
+    restart: unless-stopped
+    # JVM은 MaxRAMPercentage=75(Dockerfile). 컨테이너 제한이 있어야 호스트 75%가 아니라 이 몫의 75%로 잡힌다 (B3).
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs
+      ES_URL: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${ES_PASSWORD}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIM: ${EMBEDDING_DIM}
+      CHAT_MODEL: ${CHAT_MODEL}
+      CONTEXT_TURNS: ${CONTEXT_TURNS:-5}
+      SEARCH_TOP_K: ${SEARCH_TOP_K:-5}
+      AUDIT_SCOPE: ${AUDIT_SCOPE:-FULL}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      # 아래 튜너블들이 컨테이너로 전달되지 않으면 .env에 넣어도 무시된다 — 운영자가 nori를 english로,
+      # 업로드·컨텍스트 상한을 조정해도 아무 일도 안 일어난다 (REL-4). 기본값은 application.yml과 같다.
+      SEARCH_ANALYZER: ${SEARCH_ANALYZER:-nori}
+      ES_INDEX_NAME: ${ES_INDEX_NAME:-llmhub-chunks}
+      SEARCH_BM25_BOOST: ${SEARCH_BM25_BOOST:-1.0}
+      SEARCH_VECTOR_BOOST: ${SEARCH_VECTOR_BOOST:-1.0}
+      CHUNK_SIZE_TOKENS: ${CHUNK_SIZE_TOKENS:-512}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+      MAX_CONTEXT_TOKENS: ${MAX_CONTEXT_TOKENS:-3000}
+      MAX_QUESTION_CHARS: ${MAX_QUESTION_CHARS:-4000}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      # JWT issuer는 토큰의 iss(Keycloak 외부 호스트명)와 같아야 한다. jwk-set-uri(내부)와 다르다 (R-16).
+      KEYCLOAK_ISSUER: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}/realms/${KEYCLOAK_REALM}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-llmhub-backend}
+      # 외부 호출 타임아웃. 없으면 게이트웨이·ES 무응답 시 무한 대기다 (REL-1).
+      EMBEDDING_CONNECT_TIMEOUT: ${EMBEDDING_CONNECT_TIMEOUT:-5s}
+      EMBEDDING_READ_TIMEOUT: ${EMBEDDING_READ_TIMEOUT:-120s}
+      CHAT_STREAM_IDLE_TIMEOUT: ${CHAT_STREAM_IDLE_TIMEOUT:-60s}
+      ES_CONNECT_TIMEOUT: ${ES_CONNECT_TIMEOUT:-5s}
+      ES_RESPONSE_TIMEOUT: ${ES_RESPONSE_TIMEOUT:-30s}
+      FILE_STORAGE_ROOT: /app/data/documents
+      # 헬스 엔드포인트를 애플리케이션 포트에서 떼어낸다. 이 포트는 publish하지 않으므로
+      # 컨테이너 밖에서 보이지 않고, 8080의 API 표면은 전부 인증을 요구한다 (SEC-1, REL-5).
+      MANAGEMENT_SERVER_PORT: 9090
+    volumes:
+      # 업로드 원본. 재색인은 여기서 다시 읽는다 (S16).
+      - ${DATA_ROOT:-./data}/documents:/app/data/documents
+    healthcheck:
+      # localhost가 아니라 127.0.0.1이다. 컨테이너 안에서 localhost는 ::1로 먼저 풀리는데
+      # 서버는 IPv4에만 바인딩되어 있어 연결이 거부된다.
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9090/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      # 코어는 Flyway 마이그레이션 뒤에 뜬다. 첫 기동에 시간이 걸리므로 start_period를 넉넉히 준다.
+      start_period: 60s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: ${FRONTEND_MEM_LIMIT:-1g}
+    environment:
+      CORE_BASE_URL: http://backend:8080
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      AUTH_TRUST_HOST: "true"
+      KEYCLOAK_URL: ${KEYCLOAK_HOSTNAME:-http://localhost:8081}
+      # 서버측 백채널은 내부 서비스명으로 친다. 외부 URL은 이 컨테이너 안에서 자기 자신이라 code→token
+      # 교환·refresh가 도달하지 못한다 (리뷰 B1). 브라우저 리다이렉트(authorization)만 KEYCLOAK_URL(외부)로 간다.
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+    # 유일하게 외부로 나가는 포트다 (SEC-1).
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      # node:alpine에는 curl이 없다. wget은 BusyBox 내장이다.
+      # localhost는 ::1로 먼저 풀리고 Next는 IPv4에만 바인딩한다 — 127.0.0.1을 쓴다.
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    depends_on:
+      # 코어가 응답하기 전에 BFF가 뜨면 첫 사용자가 502를 본다 (REL-5).
+      backend:
+        condition: service_healthy
+      keycloak:
+        # KC가 실제로 준비된 뒤에 뜬다. service_started면 KC 기동 전 창에 첫 로그인이 실패할 수 있다 (L-9).
+        condition: service_healthy

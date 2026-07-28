@@ -1,0 +1,55 @@
+# 로컬 개발용 완화. `docker compose up`이 docker-compose.yml 위에 자동으로 얹는다.
+#
+# 운영에서는 이 파일이 얹히면 안 된다. `docker compose -f docker-compose.yml up -d`로
+# 명시해서 띄운다.
+#
+# 여기서 하는 일:
+#   1) 인프라 포트를 호스트에 연다 (코어·프론트를 소스에서 돌리기 위해)
+#   2) Elasticsearch 보안을 끈다
+#   3) Keycloak을 dev 모드로 돌린다 (내장 H2, 실행이 빠르다)
+#   4) backend·frontend 컨테이너를 띄우지 않는다 (`app` 프로파일로 묶어 기본에서 뺀다)
+
+services:
+  postgres:
+    ports:
+      # 5432가 아니다. 로컬에 PostgreSQL이 설치되어 있으면 그쪽이 0.0.0.0:5432를 먼저
+      # 잡아, 호스트에서 나가는 연결이 컨테이너가 아니라 로컬 서버로 간다.
+      - "${POSTGRES_PORT:-5433}:5432"
+
+  elasticsearch:
+    environment:
+      # 개발 편의를 위해 끈다. 운영 기준 파일에서는 켜져 있다.
+      xpack.security.enabled: "false"
+      ELASTIC_PASSWORD: ""
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    # dev 모드는 내장 H2를 쓴다. DB 의존이 없어 기동이 빠르다.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: dev-file
+      KC_DB_URL_HOST: ""
+      KC_DB_URL_DATABASE: ""
+      KC_DB_USERNAME: ""
+      KC_DB_PASSWORD: ""
+      KC_HOSTNAME: ""
+      KC_HTTP_PORT: 8080
+    # dev 모드는 PostgreSQL을 쓰지 않으므로 기다릴 이유가 없다.
+    depends_on: !reset []
+
+  litellm:
+    ports:
+      - "4000:4000"
+
+  # 개발에서는 코어와 BFF를 소스에서 돌린다. 프로파일을 붙여 기본 `up`에서 제외한다.
+  backend:
+    profiles: ["app"]
+
+  frontend:
+    profiles: ["app"]
