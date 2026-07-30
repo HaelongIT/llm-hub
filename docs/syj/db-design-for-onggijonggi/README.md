@@ -1,18 +1,59 @@
 # llmhub DB 설계 이관 번들 → 옹기종기
 
-llmhub의 **DB 스키마 설계**를 옹기종기(onggijonggi) 프로젝트로 그대로 들고 가기 위한 자체 포함 번들이다.
-llmhub의 특정 시점 스냅샷이며, 원본은 llmhub 레포다.
+llmhub의 **DB 스키마 설계**를 옹기종기(onggijonggi) 프로젝트로 들고 가기 위한 자체 포함 번들이다.
+
+> ## ⚠️ 먼저 읽을 것 — 번들 안에서 스키마가 **진화했다**
+> 이 번들은 처음엔 "llmhub 스냅샷을 그대로 복사"하는 용도였다. 그 뒤 **14라운드에 걸친 설계 리뷰**를
+> 거치며 옹기종기용으로 상당히 바뀌었다(비동기 색인 상태 추적 · 부서 스코프 · 소프트 삭제 · 문서 버전
+> 이력 · 서로게이트 키 등).
+>
+> **→ `migration/*.sql`은 이제 출발점이 아니라 "llmhub 원본 참고"다. 최종 형태는 `final-schema.md`다.**
 
 ## 이 번들에 든 것
 
-| 파일 | 무엇 |
-|---|---|
-| `migration/V1~V4.sql` | PostgreSQL 스키마 (Flyway 마이그레이션 4개, 테이블 5개) — **원본 그대로** |
-| `03-data-model.md` | 설계 본체: PG 5테이블 + ES 조각 인덱스 필드 + 불변식 5가지 — **원본 그대로** |
-| `es-chunk-index.json` | Elasticsearch 조각 인덱스 매핑 (llmhub은 코드로 생성하는 걸 JSON으로 추출) |
-| `README.md` | 이 문서 — 옮기는 법 + 설계 근거 용어집 + 불변식 체크리스트 |
+| 파일 | 무엇 | 상태 |
+|---|---|---|
+| **`final-schema.md`** | **★ 14라운드 최종 스키마 한 장.** 필드마다 역할·근거·등급(A/B/C) 병기 | **정본** |
+| **`review-response.md`** | 설계 리뷰 논의 정본(라운드 1~14, 종료). **왜 그렇게 정했나가 여기 있다** | **정본** |
+| `03-data-model.md` | llmhub 설계 본체: PG 5테이블 + ES 필드 + 불변식 5가지 | llmhub 원본 |
+| `es-chunk-index.json` | Elasticsearch 조각 인덱스 매핑 | llmhub 원본(+2필드 추가 필요, `final-schema.md`) |
+| `migration/V1~V4.sql` | llmhub PostgreSQL 마이그레이션 | **llmhub 원본 — 그대로 적용 금지** |
+| `README.md` | 이 문서 — 옮기는 법 + 이름 규칙 + 근거 용어집 | — |
 
 **들지 않은 것(범위 밖):** JPA 엔티티, `application.yml`, docker-compose/인프라. 옹기종기에서 팀과 새로 쌓는다.
+
+## 읽는 순서
+
+1. **`final-schema.md`** — 최종 형태. 여기서 스키마를 조립한다.
+2. **`review-response.md` §0 · §0-2** — 판정 두 렌즈. *물려받은 근거가 여기서도 성립하나* /
+   *지금 안 정하면 나중에 넣을 수 있나.* **새 항목이 생기면 이 둘로 판정하면 되므로 14라운드를 다시
+   돌 필요가 없다.**
+3. **`review-response.md` §3** — 착수 전(A·B) / 나중에(C) 체크리스트.
+4. **`review-response.md` §4** — 열린 질문 상태(둘뿐, 둘 다 조직 사실).
+5. 필요할 때만 — **§1·§2·§5는 이력**이다(llmhub 코드 검증 → 라운드별 정정 과정). 처음부터 순서대로
+   읽으면 시간을 버린다.
+6. `03-data-model.md` · `migration/*.sql` — llmhub이 **원래 어땠나**를 볼 때.
+
+## 이름 규칙 — 이 번들의 모든 이름은 llmhub 원본이다
+
+**옹기종기는 자기 용어집으로 이름만 바꿔 쓴다. 이름이 달라도 역할·제약·등급이 같으면 같은 설계다.**
+아래는 논의 중 **실제로 관찰된** 매핑이고, **여기 없는 이름은 팀 용어집을 따른다**(추측으로 채우지 않는다).
+
+| llmhub | 옹기종기(관찰됨) |
+|---|---|
+| `document` | `doc` |
+| `access_tags` | `acc_tag` |
+| `chat_session` / `chat_message` | `chat_sess` / `chat_msg` |
+| `audit_log` | `adt_log` |
+| `requester_id` | `req_id` |
+| `sources_json` | `src_json` |
+| `outcome` | `otc` |
+| `embedding_model` | `emb_mdl` |
+| `indexing_run_id` | `idx_run_id` |
+| `original_path` | `org_path` |
+| `03-data-model.md`(문서) | `04_data.md` |
+
+`doc_key`는 양쪽이 같다.
 
 ## PostgreSQL 스키마 한눈에
 
@@ -25,12 +66,17 @@ llmhub의 특정 시점 스냅샷이며, 원본은 llmhub 레포다.
 
 ## 옮기는 법
 
-1. **PostgreSQL 스키마**: `migration/*.sql` 4개를 옹기종기 백엔드의 Flyway 경로
-   (`backend/src/main/resources/db/migration/` 또는 그 프로젝트의 동등 위치)에 **파일명 그대로** 복사한다.
-   파일명 앞의 `V1`~`V4` 순번이 적용 순서다 — 이름을 바꾸지 않는다.
-   - Flyway 의존성(`flyway-core`, `flyway-database-postgresql`)과 PostgreSQL 드라이버가 있어야 앱 기동 시 자동 적용된다.
-   - SQL 헤더 주석이 참조하는 `docs/03-data-model.md`는 이 번들에 동봉돼 있고(아래 참조), `S3·S5·S17·S18` 등
-     결정 코드는 이 README의 **용어집**이 뜻을 채운다.
+1. ~~**PostgreSQL 스키마**: `migration/*.sql` 4개를 옹기종기 Flyway 경로에 **파일명 그대로** 복사한다.~~
+   → **철회. 그대로 적용하면 안 된다.**
+   그 SQL엔 14라운드 결정이 **하나도 반영돼 있지 않다** — `department`·`status`·`status_at`·
+   `pending_idx_run_id`/`cur_idx_run_id`·`acc_tag_ver`·`deleted_at`/`deleted_by`·`document_version`·
+   임베딩 지문이 전부 없고, `uploaded_by`가 FK `SET NULL`이며(값 복사로 바뀜) 유니크가 전역이다
+   (부분 유니크로 바뀜).
+   - **최종 형태는 `final-schema.md`다.** 거기서 조립해 **옹기종기 용어집 이름으로 새로 쓴다.**
+   - `migration/*.sql`은 **llmhub이 원래 어땠나를 대조할 때만** 본다. SQL 헤더 주석이 참조하는
+     `docs/03-data-model.md`도 같은 성격이고, `S3·S5·S17·S18` 등 결정 코드는 아래 **용어집**이 뜻을 채운다.
+   - Flyway 의존성(`flyway-core`, `flyway-database-postgresql`)과 PostgreSQL 드라이버가 있어야 앱 기동 시
+     자동 적용된다 — 이건 그대로 유효하다.
 2. **설계 문서**: `03-data-model.md`를 옹기종기 `docs/`에 둔다(예: `docs/03-data-model.md`). 스키마의 "왜"가 여기 있다.
 3. **Elasticsearch 인덱스**: 색인 시작 **전에** 인덱스를 만든다. 두 방법 중 하나.
    - (a) `es-chunk-index.json`을 인덱스 생성 바디로 그대로 사용:
@@ -80,16 +126,28 @@ SQL과 `03-data-model.md`에 등장하는 결정 코드의 한 줄 뜻. 원문 �
 
 ## 불변식 (옹기종기에서도 테스트로 강제할 것)
 
-`03-data-model.md`의 계약. 구현 시 테스트로 못 박는다.
+`03-data-model.md`의 계약. 구현 시 테스트로 못 박는다. **단 2·5번은 리뷰를 거쳐 갱신됐다.**
 
-1. 모든 조각은 필수 메타데이터 7종을 빠짐없이 가진다.
+1. 모든 조각은 필수 메타데이터 7종을 빠짐없이 가진다. → **지문·`acc_tag_ver`가 추가돼 9종**
+   (`final-schema.md` ES 절).
 2. 조각의 `access_tags`는 상위 `document`의 `access_tags`와 일치한다(사본).
-3. `audit_log`에는 어떤 FK도 없다.
+   > **⚠️ 갱신(4라운드)** — **항상 참이 아니다.** `acc_tag_ver`가 **일치할 때만** 참이다. "ES 먼저,
+   > PG 나중" 갱신 중과 동시 재색인 중에는 일시적으로 어긋나고, 복구 수단은 `acc_tag_ver` 정합성
+   > 검사다(`review-response.md` §5-1·§5-1a). **검증 스크립트에 이 캐벗을 반영할 것.**
+3. `audit_log`에는 어떤 FK도 없다. — 그대로 유효.
 4. 같은 `doc_key`로 두 번 색인 후, 구버전 조각은 존재하지 않는다.
+   > **보강** — 이제 스코프가 `(department, doc_key)`이고, 이 불변식을 지키는 장치는
+   > `cur_idx_run_id`/`pending_idx_run_id` + **고아 조각 스위퍼**다(§5-1a·§5-8).
 5. 색인에 쓴 `embedding_model`과 검색에 쓰는 임베딩 모델은 동일하다.
+   > **⚠️ 갱신(10라운드)** — **이름 비교로는 성립하지 않는다.** 같은 태그로 가중치가 바뀔 수 있으므로
+   > **지문(fingerprint) 비교**로 판정한다. 지문은 조각 필드라 **착수 전에 넣어야 한다** — 나중에
+   > 넣으면 그 사이 색인된 조각이 어떤 가중치로 만들어졌는지 **영원히 알 수 없다**(소급 불가).
 
 ## 경고
 
+- **`migration/*.sql`과 `03-data-model.md`는 llmhub 원본이고, 최종 형태가 아니다.** 최종은
+  `final-schema.md` + `review-response.md`다. 이 둘을 섞어 읽으면 14라운드에 뒤집힌 결정을 그대로
+  구현하게 된다(예: `uploaded_by` FK `SET NULL`, 전역 유니크, 결정적 id 유도).
 - 이 번들은 **llmhub의 특정 시점 스냅샷**이다. 이후 llmhub 스키마가 바뀌어도 자동으로 동기화되지 않는다(일회성 이관).
 - 비밀정보 없음 — 스키마와 설계 문서뿐이다. 키·토큰·비밀번호는 담기지 않았다.
 - SQL·매핑은 llmhub의 스택(PostgreSQL 17 + Elasticsearch 9.x + nori)을 전제로 검증됐다. 옹기종기가 같은 스택이면 그대로,
