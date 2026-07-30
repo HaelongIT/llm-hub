@@ -1,4 +1,4 @@
-# DB 설계 리뷰 티키타카 — 응답 (라운드 1~12)
+# DB 설계 리뷰 티키타카 — 응답 (라운드 1~13)
 
 옹기종기 팀이 `db-design-for-onggijonggi/` 번들을 자기네 에이전트로 검증한 결과에 대한 응답이다.
 **1절**은 llmhub 실제 코드로 검증한 사실(전부 파일:내용 인용 가능), **2절**은 이번 논의에서 새로
@@ -183,11 +183,34 @@ llmhub의 60자 절단·서로게이트 쌍 보존은 보편적이라 그대로 
 | 테이블 | 담는 것 |
 |---|---|
 | **`document`** (논리 문서) | 기존 전부 — `access_tags`·`acc_tag_ver`·`status`·`status_at`·`pending_idx_run_id`·`cur_idx_run_id`·`last_error`·`attempt_cnt`·`embedding_model`+지문·`chunking_version`·`deleted_at`·`deleted_by` **+ 새로: `current_version_id`, `next_version_no`** |
-| **`document_version`** (업로드 이력) | `id` · `document_id` · `version_no` · `filename` · `original_path` · `uploaded_by` · `uploaded_at` |
+| **`document_version`** (업로드 이력) | `id` · `document_id` · `version_no` · `filename` · `original_path` · **`uploaded_by`(값 복사)** · `uploaded_at` |
 
 **왜 이 분할인가.** 색인 상태는 "지금 검색되는 것"의 속성이라 `document`에 남고, 버전 테이블은 순수
 하게 **"업로드된 파일의 이력"**만 담는다. `embedding_model`·`chunking_version`도 `document`에 남긴다 —
 그건 버전의 속성이 아니라 **현재 색인의 속성**이다(같은 버전을 모델만 바꿔 재색인할 수 있다).
+
+**(13라운드) `document_version.uploaded_by`는 FK가 아니라 `keycloak_subject` 값 복사다.**
+처음엔 `document.uploaded_by`의 `ON DELETE SET NULL` 규칙(V4)을 그대로 가져간다고 적었는데, **7라운드에
+`deleted_by`를 값 복사로 바꾼 결정과 어긋난다.**
+- **§0-2 기준으로 명확히 A급이다**: `SET NULL`은 계정 삭제 시 **정보를 파괴**하므로, 나중에 값 복사로
+  바꿔도 **그 사이 지워진 값은 복원되지 않는다.**
+- llmhub에서 `SET NULL`이어도 됐던 이유는 **llmhub의 감사 대상이 채팅뿐**이었기 때문이다(V4 주석:
+  *"uploaded_by는 '누가 올렸나'의 기록일 뿐 하드 의존이 아니다"*). 옹기종기는 **문서 업로드·삭제
+  자체를 감사**하기로 했으므로(§0 소프트 삭제 근거) 성격이 다르다 — 참조가 아니라 감사 정보다.
+- → `deleted_by`와 **같은 형태**로 통일한다.
+
+**(13라운드) `current_version_id`는 nullable이고, 그 NULL이 상태를 표현한다.**
+`document.current_version_id` → `document_version.id`와 `document_version.document_id` →
+`document.id`가 **순환 참조**라 첫 삽입이 닭-달걀이다. 그래서 `current_version_id`는 **nullable**이고
+삽입 순서는 **`document` → `version` → 포인터 UPDATE**다. 부수적으로 NULL이 유용한 뜻을 갖는다:
+
+| 상태 | 뜻 |
+|---|---|
+| `current_version_id IS NULL` + 버전 행 있음 | 업로드됐지만 **아직 한 번도 색인 성공 못 함** |
+| `current_version_id` 있음 + `status='PROCESSING'` | **구버전이 검색되는 중**, 새 버전 색인 중 |
+
+→ **"검색 가능한 문서" 조회 조건이 `current_version_id IS NOT NULL`로 깔끔해진다.**
+`NOT NULL`로 잡으면 첫 삽입에서 바로 막히므로 구현자가 즉시 알아채지만, 여기 적어 두면 한 번 덜 막힌다.
 
 **동작:**
 - **재업로드** → `document_version` 새 행 INSERT(새 `original_path`) → `document`에 `PENDING` +
@@ -207,6 +230,31 @@ llmhub의 60자 절단·서로게이트 쌍 보존은 보편적이라 그대로 
 > 필요한 이상 구 원본은 누수가 아니라 그 버전의 증거다.** 그 항목은 철회한다 — §5-7에 정정을 남겼다.
 > llmhub에서 그게 옳았던 이유는 **llmhub이 버전 이력을 요구하지 않았기** 때문이다. §0 렌즈가 또
 > 한 번 걸러낸 셈이다.
+
+**(13라운드) 긴급 정정 경로와 부딪히는 지점 — 조회 규칙으로 푼다. 컬럼을 늘리지 않는다.**
+
+§5-2는 긴급 정정을 **"삭제 → 업로드"**로 권하고, §5-7a는 그 업로드가 **새 `document` 행**을 만든다.
+`document_version`은 `document_id`에 매달려 있으니 **버전 이력이 두 행으로 쪼개진다.** 그리고 하필
+**긴급 정정이야말로 "왜 바꿨나"가 가장 중요한 케이스**다. 두 결정이 8·11라운드에 따로 나와 마주친 적이
+없었다.
+
+**그런데 "나중엔 못 이어붙인다"는 성립하지 않는다** — 그래서 §0-2 기준에 걸리지 않는다:
+- 삭제된 A와 새 B는 **같은 `(department, doc_key)`를 그대로 갖고 있다.**
+- **부분 유니크 인덱스**(`WHERE deleted_at IS NULL`) 덕에 같은 키로 **살아있는 행은 언제나 하나뿐**이라,
+  같은 키의 행들을 `created_at`으로 정렬하면 **A→B→C 순서가 모호함 없이 복원된다.**
+- 즉 `previous_document_id` 같은 체인 컬럼은 **언제든 소급 채울 수 있다.**
+
+**그래서 컬럼 대신 조회 규칙으로 정한다:**
+
+> **버전 이력 조회는 `document_id`가 아니라 `(department, doc_key)`로 한다.**
+> 삭제된 행까지 포함해 그 키의 모든 `document`를 `created_at` 순으로 모으고 각 행의 `document_version`을
+> 이어 붙이면, **체인이 스키마 변경 없이 그대로 이어진다.**
+
+**남는 한계 둘은 알고 쓴다.**
+- **부서 이관**(§5-3)으로 `department`가 바뀌면 그 지점에서 키가 달라져 체인이 끊긴다. 운영자가
+  런북에서 수동으로 잇거나, 그때 `previous_document_id`를 도입하면 된다 — **소급 가능하므로 늦지 않다.**
+- 같은 키를 **무관한 문서에 재사용**하면 체인이 잘못 이어진다. 같은 부서 안에서 같은 키면 같은 논리
+  문서로 보는 게 자연스러우므로 감수한다.
 
 #### 전수 재검에서 걸리지 않은 것들 (12라운드)
 
@@ -546,8 +594,10 @@ findByDepartmentAndDocKey(dept, docKey)   // deleted_at 필터 없음
       않는다** — 과거에 어떤 가중치로 색인됐는지는 소급이 원리적으로 불가능하다.
 - [ ] **`document_version` 테이블** + `document.current_version_id` · `next_version_no` — §0-2.
       **나중에 넣어도 그 이전 이력은 영영 없다.** `version_no` 발급은 `chat_message.seq`와 같은 방식.
-- [ ] **`document.uploaded_by`를 `document_version`으로 이동** — 버전마다 올린 사람이 다를 수 있다.
-      `ON DELETE SET NULL` 규칙은 그대로(§1 2번).
+      **`current_version_id`는 nullable**(순환 참조라 `document` → `version` → 포인터 UPDATE 순서).
+- [ ] **`document.uploaded_by`를 `document_version`으로 이동 + `keycloak_subject` 값 복사로** — 버전마다
+      올린 사람이 다를 수 있고, **`ON DELETE SET NULL`은 계정 삭제 시 정보를 파괴**하므로 나중에 못
+      되돌린다(13라운드 정정 — `deleted_by`와 같은 형태로 통일, §0-2).
 - [ ] `chat_message.seq` + `chat_session.next_seq` — §1 4번·§5-6. 데이터 쌓인 뒤 넣으면 기존 행에
       소급 채워야 한다. 발급은 원자적 UPDATE + `RETURNING`(off-by-one 주의).
 
@@ -576,8 +626,14 @@ findByDepartmentAndDocKey(dept, docKey)   // deleted_at 필터 없음
 
 - [ ] **파라미터 숫자** — 리퍼 타임아웃 · 정합성/스위퍼 배치 주기 · `attempt_cnt` 상한 · 원본 유예
       기간(N일). 전부 설정(§4).
+- [ ] **지문 불일치 감지** — 기록한 임베딩 지문을 현재 모델 지문과 비교해 불일치 조각을 찾는다.
+      **`acc_tag_ver` 정합성 배치에 얹으면 배치가 안 늘어난다.** 감지 후 처리(재색인 대상 표시 / 검색 시
+      거부)도 여기서 정한다. **⚠️ C이지만 A의 값을 실현하는 항목이다** — 미루면 지문 값만 쌓이고 아무도
+      안 보게 되어 A가 무의미해진다(13라운드).
 - [ ] **운영 런북** — 긴급 정정 절차(예상 검색 공백 + 실패 시 롤백 2단계, §5-2) · 부서 개편 절차
       (`department` UPDATE + `acc_tag` 조정, §5-3). **문서라 코드에 영향이 없다.**
+      **긴급 정정 항목에 한 줄 추가**: 이 경로는 `document` 행을 새로 만들므로 **버전 이력이 두 행에
+      나뉜다 — `(department, doc_key)`로 조회해야 전체가 보인다**(§0-2, 13라운드).
 - [ ] **복구 API 세부** — 삭제와 같은 권한, 초기화 표대로 리셋, 살아있는 동일 키 존재 시 409(§5-7).
       소프트 삭제와 원본 보관이 A에 있으므로 API는 나중에 붙여도 데이터에 문제가 없다.
 - [ ] **원본 파일 유예 삭제 배치** — 삭제 후 N일 경과분 정리(§5-7 3단계). **전 버전 일괄**(11라운드).
@@ -1111,8 +1167,12 @@ UPDATE document
 - 2절·5절의 설계 제안은 **llmhub 코드로 검증된 사실이 아니다.** llmhub엔 비동기 워커·부서 스코프·
   acc_tag 갱신 API·`acc_tag_ver`가 없으므로 실전에서 검증되지 않았다. 1절(코드 인용 있는 항목)과
   구분해서 읽을 것.
-- 이 문서는 이 시점(12라운드)까지의 논의 스냅샷이다. 후속 라운드 결과는 이 파일에 계속 이어 붙일 것 —
-  **12라운드까지 한 줄도 지우지 않았다**(정정은 취소선·정정 박스로만). 중간에 "나중에 해도 된다"고
+- **(13라운드 교훈) "나중에 못 넣는다"는 주장도 검증 대상이다.** 긴급 정정이 버전 이력을 두 행으로
+  쪼개는 문제에 "체인 컬럼을 지금 넣어야 한다"는 제안이 왔지만, **업무 키가 두 행에 그대로 남아 있어
+  관계는 언제든 소급 복원된다** — 컬럼 없이 **조회 규칙**으로 풀렸다(§0-2). **A급 판정에도 근거를
+  대야 한다.** 안 그러면 A가 부풀고, **A가 부풀면 착수가 늦어진다** — §0-2의 목적과 정반대가 된다.
+- 이 문서는 이 시점(13라운드)까지의 논의 스냅샷이다. 후속 라운드 결과는 이 파일에 계속 이어 붙일 것 —
+  **13라운드까지 한 줄도 지우지 않았다**(정정은 취소선·정정 박스로만). 중간에 "나중에 해도 된다"고
   미룬 것들도 삭제가 아니라 §4로 이관됐고 대부분 이후 라운드에 닫혔다 — 삭제 경로·펜싱(5→6·7라운드),
   §0 목록 7개(10→11라운드). **어디에 무엇이 있는지는 §4(결정 상태)와 §3(작업 A/B/C)이 색인 역할을 한다.**
 - **(10라운드) 열린 질문에는 "언제까지"가 붙어야 한다.** §0 목록은 9라운드에 만들 때 마감 시점이
